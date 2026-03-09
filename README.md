@@ -180,19 +180,19 @@ Replace `100.x.x.x` with your server's Tailscale IP.
 
 ### Connect — Claude Desktop
 
-Claude Desktop does not yet support Streamable HTTP directly. Use
-[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) as a bridge, which connects
-over SSE. In `~/Library/Application Support/Claude/claude_desktop_config.json`
+Claude Desktop does not yet support Streamable HTTP natively. Use
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) as a bridge. In
+`~/Library/Application Support/Claude/claude_desktop_config.json`
 (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
   "mcpServers": {
-    "agentmemory.md": {
+    "agentmemory": {
       "command": "npx",
       "args": [
         "mcp-remote",
-        "http://100.x.x.x:59999/sse",
+        "http://100.x.x.x:59999/mcp",
         "--allow-http"
       ]
     }
@@ -204,7 +204,7 @@ Replace `100.x.x.x` with your server's Tailscale IP. The `--allow-http` flag is 
 because `mcp-remote` defaults to HTTPS — Tailscale traffic is already encrypted at the
 network layer so plain HTTP is safe here.
 
-Make sure the server is running in SSE mode (see Step 3 above), then restart Claude Desktop.
+Restart Claude Desktop after saving.
 
 ---
 

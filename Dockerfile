@@ -22,6 +22,10 @@ RUN pip install --upgrade pip && \
 COPY pyproject.toml ./
 RUN pip install -e ".[dev]"
 
+# Pre-download the embedding model into the image so startup is instant.
+# Must happen BEFORE COPY . . so this layer is cached across code-only changes.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-base-en-v1.5')"
+
 # Copy source
 COPY . .
 
