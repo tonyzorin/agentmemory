@@ -58,27 +58,114 @@ memory profile
 memory stats
 ```
 
-## Connect to Cursor IDE
+## Connecting Agents
 
-In `~/.cursor/mcp.json`:
+agentmemory.md runs as a server on your self-hosted machine (a VPS, homelab, or VM).
+Your AI agents connect to it remotely. The recommended way to expose it privately is
+[Tailscale](https://tailscale.com) — a zero-config VPN that gives every device on your
+network a stable private IP, with no firewall rules or port-forwarding required.
 
-```json
-{
-  "mcpServers": {
-    "agentmemory": {
-      "url": "http://your-server:8006/mcp"
-    }
-  }
-}
+### Why Tailscale?
+
+Port 8006 must not be open to the public internet — it has no authentication.
+Tailscale puts your server and your laptop on the same private overlay network,
+so you can reach `http://100.x.x.x:8006` from anywhere without exposing anything publicly.
+
+### Step 1 — Install Tailscale on the server
+
+```bash
+# On the server running agentmemory.md
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
 ```
 
-Run the server (Streamable HTTP mode):
+Note the Tailscale IP shown (`100.x.x.x`). You can also find it later with:
+
+```bash
+tailscale ip -4
+```
+
+### Step 2 — Install Tailscale on your laptop/desktop
+
+Download from [tailscale.com/download](https://tailscale.com/download), sign in with the
+same account. Both machines will appear in your [Tailscale admin console](https://login.tailscale.com/admin/machines).
+
+### Step 3 — Start agentmemory.md
+
+The server needs to bind on `0.0.0.0` (all interfaces) so Tailscale traffic can reach it.
+
+**Streamable HTTP** (Cursor, Claude Code, any modern MCP client):
 
 ```bash
 python -m agentmemory.mcp.server --transport streamable-http --port 8006
 ```
 
+**SSE** (Claude Desktop, legacy clients):
+
+```bash
+python -m agentmemory.mcp.server --transport sse --port 8006
+```
+
+Or run both via Docker Compose (already configured for `0.0.0.0:8006`):
+
+```bash
+docker compose up -d
+```
+
+---
+
+### Connect — Cursor IDE
+
+Cursor supports the modern Streamable HTTP transport natively. In `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "agentmemory": {
+      "url": "http://100.x.x.x:8006/mcp"
+    }
+  }
+}
+```
+
+Replace `100.x.x.x` with your server's Tailscale IP.
+
+---
+
+### Connect — Claude Desktop
+
+Claude Desktop does not yet support Streamable HTTP directly. Use
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) as a bridge, which connects
+over SSE. In `~/Library/Application Support/Claude/claude_desktop_config.json`
+(macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "agentmemory.md": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://100.x.x.x:8006/sse",
+        "--allow-http"
+      ]
+    }
+  }
+}
+```
+
+Replace `100.x.x.x` with your server's Tailscale IP. The `--allow-http` flag is needed
+because `mcp-remote` defaults to HTTPS — Tailscale traffic is already encrypted at the
+network layer so plain HTTP is safe here.
+
+Make sure the server is running in SSE mode (see Step 3 above), then restart Claude Desktop.
+
+---
+
+### Connect — OpenClaw
+
 For OpenClaw (stdio mode), see [OPENCLAW_SETUP.md](OPENCLAW_SETUP.md).
+For automatic recall/capture, see the [agentmemory-openclaw-plugin](https://gitlab.com/tonyzorin/agentmemory-openclaw-plugin).
 
 ## Stack
 
@@ -116,7 +203,7 @@ CustomerFeedback
 25+ edge types: WORKS_ON, ABOUT, BELONGS_TO, FOR, ACHIEVED_VIA, BROKEN_INTO, TRACKS,
 COMPETES_WITH, PREVENTED, and more.
 
-## MCP Tools (20)
+## MCP Tools (21)
 
 **Core memory:** `memory_store`, `memory_recall`, `memory_update`, `memory_relate`, `memory_context`, `memory_forget`, `memory_entities`, `memory_split`, `memory_batch_update`, `memory_profile`
 
