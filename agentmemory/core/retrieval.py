@@ -412,6 +412,62 @@ class HybridRetrieval:
                 logger.warning("Reranker failed (using original order): %s", e)
             raw_results = candidates_to_rerank + rest
 
+        # Step 3.7: Graph expansion — discover related context nodes via graph walk.
+        # Uses the top-K entry points (after reranking if enabled) as seeds,
+        # walks 1 hop in the graph, and merges neighbor nodes into the candidate
+        # set. These nodes weren't found by vector search but are structurally
+        # connected to the best results. They get a lower base similarity so
+        # the scoring step (6) can rank them fairly against the original hits.
+        try:
+            entry_ids = []
+            for r in raw_results[:min(limit, 10)]:
+                rid = r.get("id") or r.get("$.id", "")
+                if not rid:
+                    key = r.get("_key", "")
+                    if ":" in key:
+                        rid = key.split(":")[-1]
+                if rid:
+                    entry_ids.append(rid)
+
+            if entry_ids:
+                existing_ids = set(entry_ids)
+                for r in raw_results:
+                    eid = r.get("id") or r.get("$.id", "")
+                    if eid:
+                        existing_ids.add(eid)
+
+                graph_neighbors = self.memory.graph.get_connected_content(
+                    entry_ids, max_depth=1
+                )
+                expanded_count = 0
+                for neighbor in graph_neighbors:
+                    if neighbor["id"] in existing_ids:
+                        continue
+                    # Inject as a candidate with a modest base similarity.
+                    # The scoring step will apply graph boost, recency, and
+                    # importance on top — so good neighbors will still rank well.
+                    raw_results.append({
+                        "id": neighbor["id"],
+                        "name": neighbor.get("name", ""),
+                        "content": neighbor.get("content", ""),
+                        "node_type": neighbor.get("node_type", "Memory"),
+                        "created_at": neighbor.get("created_at", ""),
+                        "importance": 0.5,
+                        "similarity": 0.25,
+                        "source": "graph_expansion",
+                        "graph_hop": neighbor.get("graph_hop", 1),
+                    })
+                    existing_ids.add(neighbor["id"])
+                    expanded_count += 1
+
+                if expanded_count:
+                    logger.debug(
+                        "Graph expansion added %d candidates from %d entry points",
+                        expanded_count, len(entry_ids),
+                    )
+        except Exception as e:
+            logger.warning("Graph expansion failed (skipping): %s", e)
+
         # Step 4: Determine anchor for graph boost
         # Priority: explicit anchor > auto-detected from query > top result fallback
         effective_anchor = anchor_entity_id
@@ -507,7 +563,7 @@ class HybridRetrieval:
                 continue
 
             scored.append({
-                **{k: v for k, v in result.items() if k != "embedding"},
+                **{k: v for k, v in result.items() if k not in ("embedding", "source")},
                 "id": result_id,
                 "score": round(final_score, 4),
                 "similarity": round(similarity, 4),
@@ -516,6 +572,7 @@ class HybridRetrieval:
                 "importance": round(base_importance, 4),
                 "effective_importance": round(eff_importance, 4),
                 "access_count": access_count,
+                "source": result.get("source", "hybrid_search"),
             })
 
         # Sort by final score

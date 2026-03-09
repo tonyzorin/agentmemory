@@ -513,6 +513,60 @@ class AGEClient:
             logger.error("find_path failed: %s", e)
             return None
 
+    def get_connected_content(
+        self, node_ids: list[str], max_depth: int = 1
+    ) -> list[dict[str, Any]]:
+        """
+        Return neighbor nodes (with content) reachable from *any* of the given node IDs.
+
+        Used by graph-augmented retrieval to expand the candidate set beyond
+        what vector search found. Each returned dict has at minimum:
+        id, name, node_type, content, created_at, and the hop distance.
+
+        Nodes that are already in node_ids are excluded (the caller already has them).
+        """
+        if not node_ids:
+            return []
+
+        id_list = ", ".join(f"'{_escape_str(nid)}'" for nid in node_ids)
+        exclude_set = set(node_ids)
+        results: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        for hop in range(1, max_depth + 1):
+            cypher = (
+                f"MATCH (start)-[*{hop}]-(neighbor) "
+                f"WHERE start.id IN [{id_list}] "
+                f"AND neighbor.id IS NOT NULL "
+                f"RETURN DISTINCT neighbor"
+            )
+            try:
+                rows = self.execute_cypher(cypher)
+                for row in rows:
+                    parsed = self._parse_agtype(row[0])
+                    if not isinstance(parsed, dict):
+                        continue
+                    props = parsed.get("properties", parsed)
+                    nid = props.get("id")
+                    if not nid or nid in exclude_set or nid in seen_ids:
+                        continue
+                    content = props.get("content")
+                    if not content:
+                        continue
+                    seen_ids.add(nid)
+                    results.append({
+                        "id": nid,
+                        "name": props.get("name", ""),
+                        "node_type": props.get("node_type", "Memory"),
+                        "content": content,
+                        "created_at": props.get("created_at", ""),
+                        "graph_hop": hop,
+                    })
+            except Exception as e:
+                logger.warning("get_connected_content hop=%d failed: %s", hop, e)
+
+        return results
+
     def get_superseded_ids(self, node_ids: list[str]) -> set[str]:
         """
         Given a list of node IDs, return the subset that have an incoming SUPERSEDES edge.
