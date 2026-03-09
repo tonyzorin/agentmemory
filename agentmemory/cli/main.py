@@ -682,6 +682,70 @@ def forget(memory_id, yes):
 
 
 # ---------------------------------------------------------------------------
+# profile
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.option("--no-recent", is_flag=True, help="Skip recent memories section")
+@click.option("--limit", default=20, show_default=True, help="Max items per section")
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
+def profile(no_recent, limit, as_json):
+    """Show user profile: preferences, projects, people, goals, and recent memories."""
+    tools = get_tools()
+    result = tools.memory_profile(include_recent=not no_recent, limit=limit)
+
+    if "error" in result:
+        console.print(f"[red]Error:[/red] {result['error']}: {result.get('reason', '')}")
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps(result, indent=2, default=str))
+        return
+
+    def _print_section(title: str, items: list, name_key: str = "name", content_key: str = "content") -> None:
+        if not items:
+            console.print(f"[dim]  (none)[/dim]")
+            return
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 1))
+        table.add_column("Name / Content", style="cyan", ratio=3)
+        table.add_column("Tags", style="dim", ratio=1)
+        table.add_column("Importance", justify="right", ratio=1)
+        for item in items:
+            name = item.get(name_key) or item.get(content_key) or item.get("id", "")
+            tags = ", ".join(item.get("tags") or [])
+            imp = f"{item.get('importance', 0.5):.2f}"
+            table.add_row(str(name)[:80], tags, imp)
+        console.print(table)
+
+    counts = result.get("counts", {})
+    console.print(Panel(
+        f"Preferences: {counts.get('preferences', 0)}  "
+        f"Projects: {counts.get('projects', 0)}  "
+        f"People: {counts.get('people', 0)}  "
+        f"Goals: {counts.get('goals', 0)}  "
+        f"Recent: {counts.get('recent', 0)}",
+        title="[bold]agentmemory.md — User Profile[/bold]",
+    ))
+
+    console.print("\n[bold yellow]Preferences[/bold yellow]")
+    _print_section("Preferences", result.get("preferences", []))
+
+    console.print("\n[bold yellow]Active Projects[/bold yellow]")
+    _print_section("Projects", result.get("projects", []))
+
+    console.print("\n[bold yellow]People[/bold yellow]")
+    _print_section("People", result.get("people", []))
+
+    console.print("\n[bold yellow]Goals[/bold yellow]")
+    _print_section("Goals", result.get("goals", []))
+
+    if not no_recent:
+        console.print("\n[bold yellow]Recent Memories[/bold yellow]")
+        _print_section("Recent", result.get("recent", []))
+
+
+# ---------------------------------------------------------------------------
 # stats
 # ---------------------------------------------------------------------------
 

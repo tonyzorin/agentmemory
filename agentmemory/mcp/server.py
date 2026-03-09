@@ -1,7 +1,7 @@
 """
 MCP server for agentmemory.md using FastMCP v3.
 
-Exposes 20 tools to any MCP-compatible agent via:
+Exposes 21 tools to any MCP-compatible agent via:
 - stdio transport (primary — for agents that spawn this as a child process)
 - SSE transport (legacy remote access)
 - Streamable HTTP transport (modern remote access — recommended for Cursor / Claude Desktop)
@@ -39,6 +39,7 @@ mcp = fastmcp.FastMCP(
         "Persistent memory system for AI agents. "
         "Use memory_store to save important information, "
         "memory_recall to search for relevant context, "
+        "memory_profile to get a user profile summary, "
         "memory_context to get full context about an entity, "
         "and memory_relate to link entities together. "
         "Always store key decisions, learnings, and project information."
@@ -282,6 +283,29 @@ def memory_batch_update(
         importance=importance,
         node_type=node_type,
         ids=ids,
+    )
+
+
+@mcp.tool()
+def memory_profile(
+    include_recent: bool = True,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """
+    Get a user profile summary to bootstrap a conversation with context.
+
+    Returns persistent facts grouped by type: preferences, active projects,
+    key people, goals, and optionally the most recently stored memories.
+
+    Call this at the start of a session alongside memory_recall and goal_manage
+    to get the full picture of who the user is and what they're working on.
+
+    include_recent: Include the most recently stored memories (default True).
+    limit: Max items per section (default 20).
+    """
+    return get_tools().memory_profile(
+        include_recent=include_recent,
+        limit=limit,
     )
 
 

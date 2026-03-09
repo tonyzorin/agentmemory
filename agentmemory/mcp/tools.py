@@ -336,6 +336,102 @@ class MemoryTools:
             logger.error("memory_list failed: %s", e)
             return _error("list_failed", str(e))
 
+    def memory_profile(
+        self,
+        include_recent: bool = True,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """
+        Return a user profile summary for bootstrapping a conversation with context.
+
+        Aggregates persistent facts (preferences, active projects, key people, goals)
+        and optionally the most recently stored memories.
+
+        Args:
+            include_recent: Include the most recently stored memories. Default True.
+            limit: Max items per section (default 20).
+        """
+        try:
+            import psycopg2
+
+            conn = psycopg2.connect(self.database_url)
+            cur = conn.cursor()
+
+            def _fetch_by_type(node_type: str, n: int) -> list[dict]:
+                cur.execute(
+                    """
+                    SELECT id, node_type, name, tags, created_at,
+                           (metadata->>'importance')::float AS importance,
+                           metadata->>'content' AS content
+                    FROM entities
+                    WHERE node_type = %s
+                    ORDER BY importance DESC NULLS LAST, created_at DESC
+                    LIMIT %s
+                    """,
+                    (node_type, n),
+                )
+                rows = cur.fetchall()
+                col_names = [desc[0] for desc in cur.description]
+                result = []
+                for row in rows:
+                    node = dict(zip(col_names, row))
+                    if node.get("importance") is None:
+                        node["importance"] = 0.5
+                    if node.get("tags") is None:
+                        node["tags"] = []
+                    result.append(node)
+                return result
+
+            preferences = _fetch_by_type("Preference", limit)
+            projects = _fetch_by_type("Project", limit)
+            people = _fetch_by_type("Person", limit)
+            goals = _fetch_by_type("Goal", limit)
+
+            recent: list[dict] = []
+            if include_recent:
+                cur.execute(
+                    """
+                    SELECT id, node_type, name, tags, created_at,
+                           (metadata->>'importance')::float AS importance,
+                           metadata->>'content' AS content
+                    FROM entities
+                    WHERE node_type NOT IN ('Metric')
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+                rows = cur.fetchall()
+                col_names = [desc[0] for desc in cur.description]
+                for row in rows:
+                    node = dict(zip(col_names, row))
+                    if node.get("importance") is None:
+                        node["importance"] = 0.5
+                    if node.get("tags") is None:
+                        node["tags"] = []
+                    recent.append(node)
+
+            conn.close()
+
+            return {
+                "preferences": preferences,
+                "projects": projects,
+                "people": people,
+                "goals": goals,
+                "recent": recent,
+                "counts": {
+                    "preferences": len(preferences),
+                    "projects": len(projects),
+                    "people": len(people),
+                    "goals": len(goals),
+                    "recent": len(recent),
+                },
+            }
+
+        except Exception as e:
+            logger.error("memory_profile failed: %s", e)
+            return _error("profile_failed", str(e))
+
     def memory_forget(self, memory_id: str) -> dict[str, Any]:
         """
         Mark a memory as obsolete and remove it from all backends.
