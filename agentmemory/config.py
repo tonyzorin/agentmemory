@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     # Log level
     log_level: str = "INFO"
 
+    # Reranker (cross-encoder) — disabled by default.
+    # Improves retrieval precision significantly at corpus sizes of ~1000+ nodes.
+    # Enable with: RERANKER_ENABLED=true
+    reranker_enabled: bool = False
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
+    reranker_top_k: int = 20  # number of hybrid-search candidates to rerank
+
 
 # Singleton
 settings = Settings()

@@ -59,6 +59,9 @@ def get_tools() -> MemoryTools:
             graph_name=settings.graph_name,
             embedding_model=settings.embedding_model,
             embedding_dim=settings.embedding_dim,
+            reranker_enabled=settings.reranker_enabled,
+            reranker_model=settings.reranker_model,
+            reranker_top_k=settings.reranker_top_k,
         )
     return _tools
 
@@ -175,6 +178,23 @@ def memory_forget(memory_id: str) -> dict[str, Any]:
     Use when information is outdated or incorrect.
     """
     return get_tools().memory_forget(memory_id=memory_id)
+
+
+@mcp.tool()
+def memory_supersede(new_id: str, old_id: str) -> dict[str, Any]:
+    """
+    Mark an old memory as superseded by a newer one.
+
+    Creates a SUPERSEDES edge from new_id → old_id. The old node is kept for
+    audit purposes but will be excluded from all future search results.
+
+    Use this when a new memory contradicts or replaces an older one.
+    Example: "user switched to Rust" supersedes "user prefers Python".
+
+    If memory_store returns a potential_conflict field, call this tool with
+    the new node's id as new_id and potential_conflict.id as old_id.
+    """
+    return get_tools().memory_supersede(new_id=new_id, old_id=old_id)
 
 
 @mcp.tool()

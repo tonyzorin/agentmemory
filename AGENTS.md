@@ -7,18 +7,18 @@ to remember important information across conversations and sessions.
 
 **Critical rule:** Store one atomic fact per node. Do NOT pack multiple unrelated facts into a single node.
 
-A node's embedding is computed from its entire content. When a node contains "Anton career history + MSP360 + EMEL + grant all in one", every query about any of those topics gets a diluted match. Splitting into focused nodes pushes similarity scores from ~0.55 toward 0.85+.
+A node's embedding is computed from its entire content. When a node contains "John career history + Acme Corp + product launch + SaaS metrics all in one", every query about any of those topics gets a diluted match. Splitting into focused nodes pushes similarity scores from ~0.55 toward 0.85+.
 
 **Good (focused):**
 ```python
-memory_store("Anton worked at MSP360 as Head of Product from 2019 to 2022", node_type="Memory")
-memory_store("Anton is leading the EMEL grant application for busonmap in 2026", node_type="Memory")
-memory_store("Anton's career focus is B2B SaaS and public transport technology", node_type="Memory")
+memory_store("John worked at Acme Corp as Head of Product from 2018 to 2022", node_type="Memory")
+memory_store("John joined ShipTrack as VP of Product in 2023", node_type="Memory")
+memory_store("John's career focus is B2B SaaS and logistics technology", node_type="Memory")
 ```
 
 **Bad (mixed):**
 ```python
-memory_store("Anton career: MSP360 Head of Product 2019-2022, EMEL grant for busonmap 2026, focus on B2B SaaS and transit", node_type="Memory")
+memory_store("John career: Acme Corp Head of Product 2018-2022, joined ShipTrack 2023, focus on B2B SaaS and logistics", node_type="Memory")
 ```
 
 **Rule of thumb:** If a node's content contains more than one subject, or is longer than ~2 sentences, split it.
@@ -28,9 +28,9 @@ To split an existing node:
 memory_split(
     memory_id="<id-of-long-node>",
     chunks=[
-        "Anton worked at MSP360 as Head of Product from 2019 to 2022",
-        "Anton is leading the EMEL grant application for busonmap in 2026",
-        "Anton's career focus is B2B SaaS and public transport technology",
+        "John worked at Acme Corp as Head of Product from 2018 to 2022",
+        "John joined ShipTrack as VP of Product in 2023",
+        "John's career focus is B2B SaaS and logistics technology",
     ]
 )
 ```
@@ -144,17 +144,17 @@ This boosts memories connected to the project in the knowledge graph.
 
 | Type | When to Use | Default Importance | Example |
 |------|-------------|-------------------|---------|
-| `Memory` | General facts, observations | 0.50 | "Anton is based in Cyprus" |
+| `Memory` | General facts, observations | 0.50 | "John is based in Berlin" |
 | `Learning` | Failed experiments, what NOT to do | 0.65 | "psycopg2-binary doesn't work on Python 3.14" |
-| `Decision` | Key choices with rationale | 0.70 | "Use Redis 8.4 for vector search" |
-| `Preference` | Project-specific preferences | 0.55 | "feedback1 uses Black for formatting" |
-| `Workflow` | Reusable processes | 0.65 | "How to deploy feedback1 to production" |
-| `Project` | Project profiles | 0.60 | "feedback1: Python/FastAPI, runs on VM 999" |
-| `Goal` | OKRs and objectives | 0.80 | "Launch Feedback1 GTM by Q2 2026" |
+| `Decision` | Key choices with rationale | 0.70 | "Use Redis for vector search" |
+| `Preference` | Project-specific preferences | 0.55 | "shiptrack uses Black for formatting" |
+| `Workflow` | Reusable processes | 0.65 | "How to deploy ShipTrack to production" |
+| `Project` | Project profiles | 0.60 | "ShipTrack: Python/FastAPI, runs on VM prod-01" |
+| `Goal` | OKRs and objectives | 0.80 | "Launch ShipTrack GTM by Q2 2026" |
 | `Initiative` | Campaigns under goals | 0.55 | "MCP integration for customers" |
 | `Task` | Concrete work items | 0.45 | "Build SSE endpoint for MCP" |
 | `Competitor` | Competing products | 0.55 | "Canny: feature voting tool" |
-| `Metric` | KPIs over time | 0.50 | "feedback1 monthly visitors" |
+| `Metric` | KPIs over time | 0.50 | "shiptrack monthly active users" |
 | `CustomerFeedback` | User feedback | 0.60 | "User says onboarding is confusing" |
 
 ## Relationship Types
@@ -171,6 +171,7 @@ Use `memory_relate` to link entities explicitly:
 - `TRACKS` — metric tracks a project/initiative
 - `PREVENTED` — learning prevented a task
 - `RELATED_TO` — generic semantic relationship (created automatically by auto-link)
+- `SUPERSEDES` — new node replaces an older contradicting node (created via `memory_supersede`)
 
 ## Common Workflows
 
@@ -211,22 +212,22 @@ This is how you build a rich knowledge graph automatically:
 ```python
 # 1. Store the new memory
 result = memory_store(
-    content="Igor is the EMEL grant contact for busonmap",
+    content="Sarah is the sales lead for the ShipTrack enterprise deal",
     node_type="Person",
-    name="Igor",
+    name="Sarah",
 )
 new_id = result["id"]
 
 # 2. Find existing entities to link to
 entities = memory_entities()  # or memory_entities(node_type="Project")
 
-# 3. Identify relevant ones (e.g. busonmap project, EMEL grant decision)
+# 3. Identify relevant ones (e.g. ShipTrack project, enterprise deal decision)
 #    and create explicit edges
-memory_relate(from_id=new_id, to_id="<busonmap-project-id>", edge_type="INVOLVED_IN")
-memory_relate(from_id=new_id, to_id="<emel-grant-decision-id>", edge_type="RELATED_TO")
+memory_relate(from_id=new_id, to_id="<shiptrack-project-id>", edge_type="INVOLVED_IN")
+memory_relate(from_id=new_id, to_id="<enterprise-deal-decision-id>", edge_type="RELATED_TO")
 
-# 4. Now recall with graph boost — Igor surfaces when asking about busonmap
-memory_recall("EMEL grant contacts", anchor_entity_id="<busonmap-project-id>")
+# 4. Now recall with graph boost — Sarah surfaces when asking about ShipTrack
+memory_recall("enterprise deal contacts", anchor_entity_id="<shiptrack-project-id>")
 ```
 
 **Edge type guide for wiring:**
@@ -239,10 +240,10 @@ memory_recall("EMEL grant contacts", anchor_entity_id="<busonmap-project-id>")
 
 ### Link people to projects (simple case)
 ```python
-person = memory_store(content="Igor — EMEL grant contact", node_type="Person", name="Igor")
-project = memory_store(content="busonmap project", node_type="Project", name="busonmap")
+person = memory_store(content="Sarah — enterprise deal contact", node_type="Person", name="Sarah")
+project = memory_store(content="ShipTrack project", node_type="Project", name="shiptrack")
 memory_relate(from_id=person["id"], to_id=project["id"], edge_type="INVOLVED_IN")
-memory_recall("EMEL grant contacts", anchor_entity_id=project["id"])
+memory_recall("enterprise deal contacts", anchor_entity_id=project["id"])
 ```
 
 ### After upgrading embedding model or importing data
@@ -283,9 +284,9 @@ Returns `id`, `node_type`, `name`, `tags`, `created_at`, `importance`, `access_c
 memory_split(
     memory_id="<id-of-long-node>",
     chunks=[
-        "Anton worked at MSP360 as Head of Product from 2019 to 2022",
-        "Anton is leading the EMEL grant application for busonmap in 2026",
-        "Anton's career focus is B2B SaaS and public transport technology",
+        "John worked at Acme Corp as Head of Product from 2018 to 2022",
+        "John joined ShipTrack as VP of Product in 2023",
+        "John's career focus is B2B SaaS and logistics technology",
     ]
 )
 ```
@@ -315,3 +316,52 @@ memory_batch_update(importance=0.9, ids=["uuid1", "uuid2"])
 - **Importance is now dynamic**: `effective_importance = base × access_boost × age_penalty` — frequently recalled nodes get up to 50% boost; stale Task/Initiative/CustomerFeedback nodes decay
 - **Task nodes auto-expire** after 90 days (TTL decay) — run `memory gc` to clean them up
 - **One fact per node** — split long/mixed nodes with `memory_split` for best retrieval scores
+
+## Conflict Resolution
+
+When you store a new memory that is similar (but not identical) to an existing one, `memory_store` may return a `potential_conflict` field:
+
+```python
+result = memory_store("John prefers Rust for systems programming", node_type="Preference")
+# result might be:
+# {
+#   "id": "<new-id>",
+#   "node_type": "Preference",
+#   "content": "...",
+#   "potential_conflict": {
+#     "id": "<old-id>",
+#     "content": "John prefers Python for all programming tasks",
+#     "similarity": 0.81
+#   }
+# }
+```
+
+When this happens, decide whether the new memory supersedes the old one:
+
+```python
+# If yes — the old memory is outdated/replaced:
+memory_supersede(new_id=result["id"], old_id=result["potential_conflict"]["id"])
+# The old node remains in the graph (audit trail) but is excluded from future searches.
+
+# If no — they're genuinely different memories, both should be kept:
+# Do nothing. Both nodes will be in search results.
+```
+
+**When to supersede:** Preferences, decisions, or facts that have changed over time.
+**When to keep both:** Related but distinct memories that don't contradict each other.
+
+## Corpus Maintenance
+
+As the corpus grows over weeks/months, run these commands periodically:
+
+```bash
+# Remove near-duplicate memories (weekly or monthly)
+memory consolidate --dry-run     # preview first
+memory consolidate --no-dry-run  # then merge
+
+# Remove expired Task/Initiative nodes
+memory gc --dry-run
+memory gc --yes
+```
+
+Consolidation merges semantically similar nodes (default threshold: cosine similarity ≥ 0.85) into a single canonical node, preserving the best content and all graph edges. It never runs automatically — you control when it happens.

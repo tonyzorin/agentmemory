@@ -87,7 +87,7 @@ class AGEClient:
         "FOR", "WORKS_ON", "OWNS", "COLLABORATES_ON", "INVOLVED_IN",
         "RELATED_TO", "PREVENTED", "AFFECTS", "LED_TO", "USES", "USED_BY",
         "HOSTS", "DOCUMENTS", "MENTIONS", "TAGGED_WITH", "COMPETES_WITH",
-        "TRACKS", "FROM",
+        "TRACKS", "FROM", "SUPERSEDES",
     }
 
     def __init__(self, dsn: str, graph_name: str = "memory_graph"):
@@ -512,6 +512,42 @@ class AGEClient:
         except Exception as e:
             logger.error("find_path failed: %s", e)
             return None
+
+    def get_superseded_ids(self, node_ids: list[str]) -> set[str]:
+        """
+        Given a list of node IDs, return the subset that have an incoming SUPERSEDES edge.
+
+        A node targeted by SUPERSEDES has been replaced by a newer one and should
+        be filtered out of retrieval results.
+
+        Returns an empty set on error (retrieval degrades gracefully).
+        """
+        if not node_ids:
+            return set()
+
+        id_list = ", ".join(f"'{_escape_str(nid)}'" for nid in node_ids)
+        cypher = (
+            f"MATCH (newer)-[:SUPERSEDES]->(older) "
+            f"WHERE older.id IN [{id_list}] "
+            f"RETURN older.id AS superseded_id"
+        )
+        try:
+            sql = (
+                f"SELECT superseded_id FROM ag_catalog.cypher(%s, $$ {cypher} $$) "
+                f"AS (superseded_id ag_catalog.agtype);"
+            )
+            with self.conn.cursor() as cur:
+                cur.execute(sql, (self.graph_name,))
+                rows = cur.fetchall()
+            result: set[str] = set()
+            for row in rows:
+                raw = self._parse_agtype(row[0])
+                if raw and isinstance(raw, str):
+                    result.add(raw.strip('"'))
+            return result
+        except Exception as e:
+            logger.warning("get_superseded_ids failed: %s", e)
+            return set()
 
     # ------------------------------------------------------------------
     # Lifecycle

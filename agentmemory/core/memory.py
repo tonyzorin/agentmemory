@@ -112,30 +112,50 @@ class MemoryService:
         # Dedup: for searchable types, check vector similarity against existing nodes.
         # For non-searchable types (Goal, Task, Project, etc.), check by exact name.
         # Threshold 0.92 catches near-identical re-stores while allowing intentional updates.
+        # Range 0.75-0.92 is flagged as a potential conflict (similar but not identical).
         DEDUP_SIMILARITY_THRESHOLD = 0.92
+        CONFLICT_SIMILARITY_THRESHOLD = 0.75
+        potential_conflict: dict | None = None
         if embedding is not None:
             try:
                 candidates = self.redis.vector_search(
                     query_embedding=embedding,
                     limit=1,
-                    min_score=DEDUP_SIMILARITY_THRESHOLD,
+                    min_score=CONFLICT_SIMILARITY_THRESHOLD,
                 )
                 if candidates:
                     existing_id = candidates[0].get("id") or candidates[0].get("$.id")
                     existing_content = candidates[0].get("content", "")
-                    if existing_id and candidates[0].get("node_type", node_type) == node_type:
-                        logger.info(
-                            "Dedup: new content is %.0f%% similar to existing node %s — skipping store",
-                            candidates[0].get("similarity", 0) * 100,
-                            existing_id,
-                        )
-                        return {
-                            "id": existing_id,
-                            "node_type": node_type,
-                            "content": existing_content,
-                            "deduplicated": True,
-                            "similarity": candidates[0].get("similarity"),
-                        }
+                    existing_similarity = float(candidates[0].get("similarity", 0))
+                    same_type = candidates[0].get("node_type", node_type) == node_type
+                    if existing_id and same_type:
+                        if existing_similarity >= DEDUP_SIMILARITY_THRESHOLD:
+                            logger.info(
+                                "Dedup: new content is %.0f%% similar to existing node %s — skipping store",
+                                existing_similarity * 100,
+                                existing_id,
+                            )
+                            return {
+                                "id": existing_id,
+                                "node_type": node_type,
+                                "content": existing_content,
+                                "deduplicated": True,
+                                "similarity": existing_similarity,
+                            }
+                        else:
+                            # Near-match in 0.75–0.92 range — flag as potential conflict.
+                            # The new memory will still be stored; the caller can decide
+                            # to call memory_supersede(new_id, existing_id) if appropriate.
+                            potential_conflict = {
+                                "id": existing_id,
+                                "content": existing_content,
+                                "similarity": round(existing_similarity, 4),
+                            }
+                            logger.info(
+                                "Potential conflict: new content is %.0f%% similar to existing node %s",
+                                existing_similarity * 100,
+                                existing_id,
+                            )
             except Exception as e:
                 logger.debug("Dedup similarity check skipped: %s", e)
         elif name:
@@ -206,7 +226,10 @@ class MemoryService:
             except Exception as e:
                 logger.debug("auto_link skipped: %s", e)
 
-        return {"id": node_id, "node_type": node_type, "content": content}
+        result: dict[str, Any] = {"id": node_id, "node_type": node_type, "content": content}
+        if potential_conflict:
+            result["potential_conflict"] = potential_conflict
+        return result
 
     def store_project(
         self,

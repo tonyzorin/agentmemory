@@ -49,6 +49,9 @@ class MemoryTools:
         graph_name: str = "memory_graph",
         embedding_model: str = "BAAI/bge-base-en-v1.5",
         embedding_dim: int = 768,
+        reranker_enabled: bool = False,
+        reranker_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
+        reranker_top_k: int = 20,
     ):
         self.database_url = database_url
         self.memory = MemoryService(
@@ -66,6 +69,9 @@ class MemoryTools:
             graph_name=graph_name,
             embedding_model=embedding_model,
             embedding_dim=embedding_dim,
+            reranker_enabled=reranker_enabled,
+            reranker_model=reranker_model,
+            reranker_top_k=reranker_top_k,
         )
         # Share the same MemoryService instance to avoid duplicate model loads
         self.retrieval.memory = self.memory
@@ -431,6 +437,41 @@ class MemoryTools:
         except Exception as e:
             logger.error("memory_profile failed: %s", e)
             return _error("profile_failed", str(e))
+
+    def memory_supersede(
+        self,
+        new_id: str,
+        old_id: str,
+    ) -> dict[str, Any]:
+        """
+        Mark an old memory as superseded by a newer one.
+
+        Creates a SUPERSEDES edge from new_id to old_id. The old node is kept
+        in the graph (for audit trail) but will be filtered from all future
+        retrieval results.
+
+        Use this when a new memory contradicts or replaces an older one — for
+        example, "user switched from Python to Rust" supersedes "user prefers Python".
+
+        Args:
+            new_id: ID of the newer memory that replaces the old one.
+            old_id: ID of the older memory being superseded.
+        """
+        if not new_id or not old_id:
+            return _error("invalid_input", "Both new_id and old_id are required")
+        if new_id == old_id:
+            return _error("invalid_input", "new_id and old_id must be different nodes")
+        try:
+            success = self.memory.relate(new_id, old_id, "SUPERSEDES")
+            return {
+                "success": success,
+                "new_id": new_id,
+                "old_id": old_id,
+                "message": f"Memory {old_id} is now superseded by {new_id} and will be excluded from search results.",
+            }
+        except Exception as e:
+            logger.error("memory_supersede failed: %s", e)
+            return _error("supersede_failed", str(e))
 
     def memory_forget(self, memory_id: str) -> dict[str, Any]:
         """

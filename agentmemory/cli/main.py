@@ -44,6 +44,9 @@ def get_tools():
         redis_url=settings.redis_url,
         graph_name=settings.graph_name,
         embedding_model=settings.embedding_model,
+        reranker_enabled=settings.reranker_enabled,
+        reranker_model=settings.reranker_model,
+        reranker_top_k=settings.reranker_top_k,
     )
 
 
@@ -1334,6 +1337,134 @@ def gc(dry_run, node_type, yes):
     console.print(
         f"[green]✓[/green] Deleted {deleted} expired nodes"
         + (f" ({errors} errors)" if errors else "")
+    )
+
+
+# ---------------------------------------------------------------------------
+# consolidate command
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.option("--dry-run", is_flag=True, default=True,
+              help="Preview clusters without merging (default: dry-run). Use --no-dry-run to merge.")
+@click.option("--no-dry-run", "dry_run", flag_value=False,
+              help="Perform the actual merge (removes duplicate nodes)")
+@click.option("--threshold", default=0.85, type=float, show_default=True,
+              help="Cosine similarity threshold for grouping near-duplicates (0–1)")
+@click.option("--type", "node_type", default=None,
+              help="Limit to one node type (e.g. Memory, Learning). Default: all searchable types")
+@click.option("--yes", is_flag=True, help="Skip confirmation before merging")
+def consolidate(dry_run, threshold, node_type, yes):
+    """Merge near-duplicate memory nodes to keep the corpus clean.
+
+    Finds groups of semantically similar nodes and merges them into a single
+    canonical node, preserving the best content and all graph edges.
+
+    Run with --dry-run (the default) first to preview what would be merged
+    before committing any changes.
+
+    \b
+    Examples:
+      memory consolidate                          # preview (dry-run)
+      memory consolidate --no-dry-run             # merge near-duplicates
+      memory consolidate --threshold 0.9          # more conservative
+      memory consolidate --type Memory            # Memory nodes only
+    """
+    from agentmemory.config import settings
+    from agentmemory.core.consolidation import ConsolidationService
+    from agentmemory.core.memory import MemoryService
+
+    svc = MemoryService(
+        database_url=settings.database_url,
+        redis_url=settings.redis_url,
+        graph_name=settings.graph_name,
+        embedding_model=settings.embedding_model,
+        embedding_dim=settings.embedding_dim,
+    )
+    consolidator = ConsolidationService(svc)
+
+    type_label = f"[cyan]{node_type}[/cyan]" if node_type else "[cyan]all searchable types[/cyan]"
+    console.print(f"Scanning {type_label} with similarity threshold [yellow]{threshold}[/yellow]...")
+
+    try:
+        clusters = consolidator.find_clusters(
+            similarity_threshold=threshold,
+            node_type=node_type,
+        )
+    except Exception as e:
+        console.print(f"[red]Error finding clusters:[/red] {e}")
+        svc.close()
+        return
+
+    if not clusters:
+        console.print("[green]✓[/green] No near-duplicate clusters found — corpus is clean.")
+        svc.close()
+        return
+
+    total_duplicates = sum(len(c.duplicates) for c in clusters)
+    console.print(
+        f"Found [yellow]{len(clusters)}[/yellow] cluster(s) covering "
+        f"[yellow]{total_duplicates}[/yellow] duplicate node(s).\n"
+    )
+
+    # Show cluster preview
+    for i, cluster in enumerate(clusters, 1):
+        canonical = cluster.canonical
+        table = Table(title=f"Cluster {i}: keep → {canonical['id'][:8]}…", show_header=True)
+        table.add_column("Role", style="bold", width=10)
+        table.add_column("ID", width=12)
+        table.add_column("Content (first 80 chars)", width=82)
+        table.add_column("Importance", width=10)
+
+        table.add_row(
+            "[green]KEEP[/green]",
+            canonical["id"][:8] + "…",
+            (canonical.get("content") or canonical.get("name", ""))[:80],
+            str(round(float(canonical.get("importance", 0.5)), 2)),
+        )
+        for dup in cluster.duplicates:
+            table.add_row(
+                "[red]MERGE[/red]",
+                dup["id"][:8] + "…",
+                (dup.get("content") or dup.get("name", ""))[:80],
+                str(round(float(dup.get("importance", 0.5)), 2)),
+            )
+        console.print(table)
+
+    if dry_run:
+        console.print(
+            "\n[yellow]Dry-run mode — no changes made.[/yellow] "
+            "Run with [bold]--no-dry-run[/bold] to merge."
+        )
+        svc.close()
+        return
+
+    if not yes:
+        click.confirm(
+            f"\nMerge {total_duplicates} duplicate node(s) into {len(clusters)} canonical node(s)?",
+            abort=True,
+        )
+
+    merged_count = 0
+    error_count = 0
+    for cluster in clusters:
+        try:
+            result = consolidator.merge_cluster(cluster, dry_run=False)
+            if "error" in result:
+                console.print(f"[red]Error merging cluster:[/red] {result['error']}")
+                error_count += 1
+            else:
+                merged_count += len(result.get("deleted", []))
+        except Exception as e:
+            console.print(f"[red]Error merging cluster:[/red] {e}")
+            error_count += 1
+
+    svc.close()
+    console.print(
+        f"\n[green]✓[/green] Merged [yellow]{merged_count}[/yellow] duplicate node(s) "
+        f"into [yellow]{len(clusters) - error_count}[/yellow] canonical node(s)"
+        + (f" ([red]{error_count} errors[/red])" if error_count else "")
     )
 
 

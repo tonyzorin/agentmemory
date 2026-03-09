@@ -67,6 +67,7 @@ class EdgeType(str, Enum):
     COMPETES_WITH = "COMPETES_WITH"
     TRACKS = "TRACKS"
     FROM = "FROM"
+    SUPERSEDES = "SUPERSEDES"
 
 
 class TaskStatus(str, Enum):

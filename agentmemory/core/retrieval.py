@@ -308,6 +308,9 @@ class HybridRetrieval:
         graph_name: str = "memory_graph",
         embedding_model: str = "BAAI/bge-base-en-v1.5",
         embedding_dim: int = 768,
+        reranker_enabled: bool = False,
+        reranker_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2",
+        reranker_top_k: int = 20,
     ):
         self.memory = MemoryService(
             database_url=database_url,
@@ -317,6 +320,12 @@ class HybridRetrieval:
             embedding_model=embedding_model,
             embedding_dim=embedding_dim,
         )
+        self.reranker_enabled = reranker_enabled
+        self.reranker_top_k = reranker_top_k
+        self._reranker = None
+        if reranker_enabled:
+            from agentmemory.core.reranker import RerankerService
+            self._reranker = RerankerService(model_name=reranker_model)
 
     def retrieve(
         self,
@@ -384,6 +393,24 @@ class HybridRetrieval:
 
         # Step 3: Normalize scores across the result set
         raw_results = _normalize_scores(raw_results)
+
+        # Step 3.5: Optional cross-encoder reranking.
+        # When enabled, score the top reranker_top_k candidates jointly with the query.
+        # The cross-encoder replaces RRF similarity scores with more nuanced
+        # query-document relevance scores. Graph boost, recency, and importance
+        # are still applied on top in step 6.
+        if self._reranker is not None:
+            candidates_to_rerank = raw_results[:self.reranker_top_k]
+            rest = raw_results[self.reranker_top_k:]
+            try:
+                candidates_to_rerank = self._reranker.rerank(
+                    query=query,
+                    documents=candidates_to_rerank,
+                )
+                logger.debug("Reranked %d candidates", len(candidates_to_rerank))
+            except Exception as e:
+                logger.warning("Reranker failed (using original order): %s", e)
+            raw_results = candidates_to_rerank + rest
 
         # Step 4: Determine anchor for graph boost
         # Priority: explicit anchor > auto-detected from query > top result fallback
@@ -493,8 +520,24 @@ class HybridRetrieval:
 
         # Sort by final score
         scored.sort(key=lambda x: x["score"], reverse=True)
+
+        # Filter out nodes that have been superseded by newer memories.
+        # A node targeted by a SUPERSEDES edge has been explicitly replaced
+        # and should not appear in results.
+        if scored:
+            try:
+                candidate_ids = [r["id"] for r in scored if r.get("id")]
+                superseded = self.memory.graph.get_superseded_ids(candidate_ids)
+                if superseded:
+                    scored = [r for r in scored if r["id"] not in superseded]
+                    logger.debug("Filtered %d superseded node(s) from results", len(superseded))
+            except Exception as e:
+                logger.warning("Superseded filter failed (skipping): %s", e)
+
         return scored[:limit]
 
     def close(self) -> None:
         """Release resources."""
         self.memory.close()
+        if self._reranker is not None:
+            self._reranker.close()
