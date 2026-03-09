@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: apache/age:release_PG18_1.7.0
+    container_name: agentmemory-postgres
+    environment:
+      POSTGRES_DB: openclaw_memory
+      POSTGRES_USER: openclaw
+      POSTGRES_PASSWORD: openclaw
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql
+      - ./agentmemory/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openclaw -d openclaw_memory"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.6
+    container_name: agentmemory-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: agentmemory-app
+    environment:
+      DATABASE_URL: postgresql://openclaw:openclaw@postgres:5432/openclaw_memory
+      REDIS_URL: redis://redis:6379/0
+      EMBEDDING_MODEL: BAAI/bge-base-en-v1.5
+      EMBEDDING_DIM: "768"
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8006"
+      LOG_LEVEL: INFO
+    ports:
+      - "8006:8006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # Override to run CLI or tests:
+    #   docker compose run --rm app memory stats
+    #   docker compose run --rm app pytest
+
+volumes:
+  pg_data:
+    external: true
+  redis_data:
+    external: true

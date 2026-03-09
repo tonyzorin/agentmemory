@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentmemory"
+version = "0.1.0"
+description = "Persistent memory for AI agents — semantic search + knowledge graph + structured nodes"
+requires-python = ">=3.14"
+dependencies = [
+    # MCP server
+    "fastmcp>=2.0.0",
+    # FastAPI for SSE/HTTP transport
+    "fastapi>=0.128.0",
+    "uvicorn[standard]>=0.32.0",
+    # Redis 8.4 hybrid search
+    "redis>=5.0.8",
+    # PostgreSQL + Apache AGE
+    # psycopg2 is built from source in the Docker image (no binary wheel for 3.14)
+    "psycopg2>=2.9.9",
+    "psycopg[binary]>=3.2.0",
+    # Embeddings
+    "sentence-transformers>=3.0.0",
+    # Data validation
+    "pydantic>=2.12.0",
+    "pydantic-settings>=2.0.0",
+    # CLI
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "httpx>=0.25.0",
+    "ksuid>=0.2.0",
+]
+
+[project.scripts]
+memory = "agentmemory.cli.main:cli"
+mem = "agentmemory.cli.main:cli"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-xdist>=3.5.0",
+    "anyio>=4.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentmemory"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
