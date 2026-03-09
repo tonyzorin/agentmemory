@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # MCP server (SSE/HTTP transport)
     mcp_host: str = "0.0.0.0"
-    mcp_port: int = 8006
+    mcp_port: int = 59999
 
     # Graph name in Apache AGE
     graph_name: str = "memory_graph"

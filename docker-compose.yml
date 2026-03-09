@@ -42,10 +42,10 @@ services:
       EMBEDDING_MODEL: BAAI/bge-base-en-v1.5
       EMBEDDING_DIM: "768"
       MCP_HOST: "0.0.0.0"
-      MCP_PORT: "8006"
+      MCP_PORT: "59999"
       LOG_LEVEL: INFO
     ports:
-      - "8006:8006"
+      - "59999:59999"
     depends_on:
       postgres:
         condition: service_healthy

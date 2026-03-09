@@ -4,7 +4,7 @@ Persistent memory for AI agents — semantic search, knowledge graph, and struct
 
 Works with any MCP-compatible agent: [Cursor](https://cursor.so), [Claude Desktop](https://claude.ai), [OpenClaw](https://github.com/openclaw/openclaw), and more.
 
-Hosted at: https://gitlab.com/tonyzorin/agentmemory.md
+Hosted at: https://gitlab.com/tonyzorin/agentmemory.md and https://agentmemory.md (soon)
 
 ---
 
@@ -67,9 +67,9 @@ network a stable private IP, with no firewall rules or port-forwarding required.
 
 ### Why Tailscale?
 
-Port 8006 must not be open to the public internet — it has no authentication.
+Port 59999 must not be open to the public internet — it has no authentication.
 Tailscale puts your server and your laptop on the same private overlay network,
-so you can reach `http://100.x.x.x:8006` from anywhere without exposing anything publicly.
+so you can reach `http://100.x.x.x:59999` from anywhere without exposing anything publicly.
 
 ### Step 1 — Install Tailscale on the server
 
@@ -97,16 +97,16 @@ The server needs to bind on `0.0.0.0` (all interfaces) so Tailscale traffic can 
 **Streamable HTTP** (Cursor, Claude Code, any modern MCP client):
 
 ```bash
-python -m agentmemory.mcp.server --transport streamable-http --port 8006
+python -m agentmemory.mcp.server --transport streamable-http --port 59999
 ```
 
 **SSE** (Claude Desktop, legacy clients):
 
 ```bash
-python -m agentmemory.mcp.server --transport sse --port 8006
+python -m agentmemory.mcp.server --transport sse --port 59999
 ```
 
-Or run both via Docker Compose (already configured for `0.0.0.0:8006`):
+Or run both via Docker Compose (already configured for `0.0.0.0:59999`):
 
 ```bash
 docker compose up -d
@@ -122,7 +122,7 @@ Cursor supports the modern Streamable HTTP transport natively. In `~/.cursor/mcp
 {
   "mcpServers": {
     "agentmemory": {
-      "url": "http://100.x.x.x:8006/mcp"
+      "url": "http://100.x.x.x:59999/mcp"
     }
   }
 }
@@ -146,7 +146,7 @@ over SSE. In `~/Library/Application Support/Claude/claude_desktop_config.json`
       "command": "npx",
       "args": [
         "mcp-remote",
-        "http://100.x.x.x:8006/sse",
+        "http://100.x.x.x:59999/sse",
         "--allow-http"
       ]
     }
@@ -172,7 +172,7 @@ For automatic recall/capture, see the [agentmemory-openclaw-plugin](https://gitl
 | Component | Technology |
 |-----------|-----------|
 | Language | Python 3.14 |
-| MCP Server | FastMCP v3 (Streamable HTTP on port 8006) |
+| MCP Server | FastMCP v3 (Streamable HTTP on port 59999) |
 | Vector Search | Redis 8.6 (FT.HYBRID: BM25 + vector, RRF fusion) |
 | Knowledge Graph | PostgreSQL 18 + Apache AGE 1.7.0 |
 | Embeddings | `BAAI/bge-base-en-v1.5` (768-dim, CPU, MTEB ~63) |
