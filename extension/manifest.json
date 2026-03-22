@@ -1,0 +1,48 @@
+{
+  "mcpb_version": "0.1",
+  "name": "agentmemory",
+  "display_name": "agentmemory.md",
+  "version": "1.0.0",
+  "description": "Persistent memory for your AI agent — decisions, context, goals, and learnings that persist across every session.",
+  "long_description": "agentmemory.md gives your agent a brain that persists across every session. It stores decisions with rationale, project context, failed experiments, goals, tasks, and preferences — and retrieves the right context using hybrid search over a knowledge graph.\n\nRequires a self-hosted agentmemory server reachable via Tailscale. See https://agentmemory.md for setup instructions.",
+  "author": {
+    "name": "Anton Zorin",
+    "url": "https://agentmemory.md"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/tonyzorin/agentmemory"
+  },
+  "homepage": "https://agentmemory.md",
+  "documentation": "https://gitlab.com/tonyzorin/agentmemory/-/blob/main/README.md",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "AGENTMEMORY_URL": "http://${user_config.tailscale_ip}:8081/mcp"
+      }
+    }
+  },
+  "tools_generated": true,
+  "keywords": ["memory", "mcp", "agent", "knowledge-graph", "context"],
+  "license": "MIT",
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "user_config": {
+    "tailscale_ip": {
+      "type": "string",
+      "title": "Server IP Address",
+      "description": "Your agentmemory server's Tailscale IP address (e.g. 100.x.x.x). Find it by running `tailscale ip -4` on your server.",
+      "required": true
+    }
+  }
+}

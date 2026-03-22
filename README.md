@@ -9,10 +9,15 @@ Works with any MCP-compatible agent: [Cursor](https://cursor.so), [Claude Deskto
 
 ---
 
-[![Add to Cursor](https://img.shields.io/badge/Cursor-Add_to_Cursor-000000?style=flat-square&logo=cursor&logoColor=white)](cursor://anysphere.cursor-deeplink/mcp/install?name=agentmemory&config=eyJ0eXBlIjoic3RyZWFtYWJsZUh0dHAiLCJ1cmwiOiJodHRwOi8vWU9VUl9UQUlMU0NBTEVfSVA6NTk5OTkvbWNwIn0%3D)
-[![Claude Desktop](https://img.shields.io/badge/Claude_Desktop-Manual_Setup-D97757?style=flat-square&logo=anthropic&logoColor=white)](#connect--claude-desktop)
+[![Add to Cursor](https://img.shields.io/badge/Cursor-Add_to_Cursor-000000?style=flat-square&logo=cursor&logoColor=white)](cursor://anysphere.cursor-deeplink/mcp/install?name=agentmemory&config=eyJ0eXBlIjoic3RyZWFtYWJsZUh0dHAiLCJ1cmwiOiJodHRwOi8vJHtlbnY6QUdFTlRNRU1PUllfSE9TVH06ODA4MS9tY3AifQ==)
+[![Claude Desktop](https://img.shields.io/badge/Claude_Desktop-Add_Extension-D97757?style=flat-square&logo=anthropic&logoColor=white)](https://github.com/tonyzorin/agentmemory/raw/main/extension/agentmemory.mcpb)
 
-> **Note:** Replace `YOUR_TAILSCALE_IP` in the Cursor install link with your server's Tailscale IP before using. See [Connecting Agents](#connecting-agents) for setup instructions.
+> **Prerequisites:** Set `AGENTMEMORY_HOST` to your server's Tailscale IP before clicking "Add to Cursor":
+> ```bash
+> # Add to ~/.bashrc or ~/.zshrc
+> export AGENTMEMORY_HOST=100.x.x.x
+> ```
+> Then restart Cursor and click the button. See [Connecting Agents](#connecting-agents) for full setup.
 
 ---
 
@@ -174,7 +179,15 @@ Replace `100.x.x.x` with your server's Tailscale IP.
 
 ### Connect — Claude Desktop
 
-Claude Desktop does not yet support Streamable HTTP natively. Use
+#### Option A — One-click Desktop Extension (recommended)
+
+Download [`agentmemory.mcpb`](https://github.com/tonyzorin/agentmemory/raw/main/extension/agentmemory.mcpb) and double-click it. Claude Desktop will open an install dialog and prompt you for your server's Tailscale IP — no config file editing required.
+
+Requires Claude Desktop 1.0.0 or later. See [Anthropic's Desktop Extensions docs](https://www.anthropic.com/engineering/desktop-extensions) for more detail.
+
+#### Option B — Manual setup
+
+Claude Desktop does not natively support Streamable HTTP. Use
 [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) as a bridge. In
 `~/Library/Application Support/Claude/claude_desktop_config.json`
 (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
