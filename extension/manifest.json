@@ -1,5 +1,5 @@
 {
-  "mcpb_version": "0.1",
+  "manifest_version": "0.1",
   "name": "agentmemory",
   "display_name": "agentmemory.md",
   "version": "1.0.0",
