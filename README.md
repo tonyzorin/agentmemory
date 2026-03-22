@@ -213,6 +213,26 @@ Restart Claude Desktop after saving.
 For OpenClaw (stdio mode), see [OPENCLAW_SETUP.md](OPENCLAW_SETUP.md).
 For automatic recall/capture, see the [agentmemory-openclaw-plugin](https://gitlab.com/tonyzorin/agentmemory-openclaw-plugin).
 
+---
+
+## Agent Rules (v2026.03.15)
+
+Ready-to-use rule files that teach your AI agent when to fetch and store memories.
+Copy the one matching your client:
+
+| Client | File | Install to |
+|--------|------|------------|
+| Cursor | [`rules/cursor.mdc`](rules/cursor.mdc) | `.cursor/rules/agentmemory.mdc` |
+| Claude Code | [`rules/CLAUDE.md`](rules/CLAUDE.md) | Project root as `CLAUDE.md` |
+| ChatGPT | [`rules/chatgpt-instructions.md`](rules/chatgpt-instructions.md) | Settings → Personalization → Custom Instructions |
+| OpenClaw | [`rules/openclaw.md`](rules/openclaw.md) | See [OPENCLAW_SETUP.md](OPENCLAW_SETUP.md) |
+
+These rules implement **tiered context fetching** — the agent loads only the memory
+context needed for each request, from zero (bug fixes) to full profile (explicit memory
+queries). See [AGENTS.md](AGENTS.md) for the full specification.
+
+After copying, customize the project tags section for your own projects.
+
 ## Stack
 
 | Component | Technology |

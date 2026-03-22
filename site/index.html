@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>agentmemory.md — Persistent memory for your AI agent</title>
+  <meta name="description" content="Give your AI agent a brain that persists across every session. Semantic search, knowledge graph, and 22 MCP tools. Self-host with Docker in minutes." />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="agentmemory.md — Persistent memory for your AI agent" />
+  <meta property="og:description" content="Give your AI agent a brain that persists across every session. Semantic search, knowledge graph, and 22 MCP tools." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://agentmemory.md" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Special+Elite&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="/" class="nav-logo">agentmemory<span class="nav-logo-ext">.md</span></a>
+      <div class="nav-links">
+        <a href="#how-it-works">How it works</a>
+        <a href="#deploy">Deploy</a>
+        <a href="https://github.com/tonyzorin/agentmemory" class="nav-cta" target="_blank" rel="noopener">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+          View Source
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="hero-bg-grid" aria-hidden="true"></div>
+    <div class="container">
+      <p class="hero-label">Open source · MCP · Self-hosted</p>
+      <h1 class="hero-headline">
+        Persistent memory<br />for your agent in&nbsp;<span class="hero-rotating-wrap"><span class="hero-rotating" id="rotating-word">Cursor</span></span>
+      </h1>
+      <p class="hero-sub">
+        Your agent forgets everything between sessions. agentmemory.md gives it a brain —
+        decisions, context, goals, and learnings that persist forever.
+      </p>
+      <div class="hero-ctas">
+        <a href="#github-repo" class="btn btn-primary" target="_blank" rel="noopener">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+          View Source
+        </a>
+        <a href="#waitlist" class="btn btn-secondary">
+          Join the waitlist
+          <span class="btn-badge">managed</span>
+        </a>
+      </div>
+      <div class="hero-screenshot">
+        <div class="hero-screenshot-label">Cursor · agent pulling context from memory</div>
+        <img src="cursor-screenshot.png" alt="Cursor IDE showing the agent running Memory Profile and Memory Recall before responding" class="hero-screenshot-img" />
+      </div>
+
+      <div class="hero-memory-strip" aria-hidden="true">
+        <div class="mem-node mem-node--active"><span>Decided: use Redis for search</span><span class="mem-age">2h ago</span></div>
+        <div class="mem-node"><span>Goal: ship v0.3 by Friday</span><span class="mem-age">1d ago</span></div>
+        <div class="mem-node mem-node--fading"><span>Prefer TypeScript on frontend</span><span class="mem-age">12d ago</span></div>
+        <div class="mem-node mem-node--dim"><span>Tried Qdrant, too heavy</span><span class="mem-age">30d ago</span></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- PROBLEM -->
+  <section class="section problem" id="problem">
+    <div class="container">
+      <h2 class="section-title fade-in">The forgetting problem</h2>
+      <p class="section-sub fade-in">Every session starts from zero. You repeat yourself. The agent re-asks. Nothing sticks.</p>
+      <div class="problem-grid">
+        <div class="problem-card fade-in">
+          <div class="problem-icon">↩</div>
+          <p>Re-explaining the same project context at the start of every conversation</p>
+        </div>
+        <div class="problem-card fade-in">
+          <div class="problem-icon">⟳</div>
+          <p>Re-making decisions you already settled — "should we use Redis or Postgres?"</p>
+        </div>
+        <div class="problem-card fade-in">
+          <div class="problem-icon">✗</div>
+          <p>Agent suggesting approaches you already tried and rejected, without knowing why</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="section features" id="features">
+    <div class="container">
+      <h2 class="section-title fade-in">What your agent remembers</h2>
+      <p class="section-sub fade-in">Structured memory across every dimension of your work.</p>
+      <div class="features-grid">
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <!-- checkmark in a split/fork — decision branch -->
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6"/><path d="M8 9l4 0 4 0"/><path d="M6 9v3a6 6 0 0 0 12 0V9"/><path d="M6 21v-3"/><path d="M18 21v-3"/></svg>
+          </div>
+          <h3>Decisions &amp; Context</h3>
+          <p>Past decisions with rationale, project stack, failed experiments and their root causes, deployment workflows and gotchas.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <!-- people / users -->
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/></svg>
+          </div>
+          <h3>People &amp; Relationships</h3>
+          <p>Stakeholders, customers, collaborators — who owns what, what customers have said, feedback linked to products.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <!-- target / goal -->
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg>
+          </div>
+          <h3>Goals &amp; Work</h3>
+          <p>Goals, initiatives, and tasks tracked across sessions. The agent picks up exactly where you left off.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <!-- sliders / preferences -->
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="white"/><circle cx="15" cy="12" r="2" fill="white"/><circle cx="10" cy="18" r="2" fill="white"/></svg>
+          </div>
+          <h3>Preferences &amp; Patterns</h3>
+          <p>Coding style, tooling preferences, anti-patterns, reusable workflows — per-project or global.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TECH BADGES -->
+  <section class="section tech" id="tech">
+    <div class="container">
+      <p class="tech-label fade-in">Under the hood</p>
+      <div class="tech-badges fade-in">
+        <div class="tech-badge">
+          <span class="badge-name">MCP</span>
+          <span class="badge-desc">Connects to any MCP-compatible agent</span>
+        </div>
+        <div class="tech-badge">
+          <span class="badge-name">Knowledge Graph</span>
+          <span class="badge-desc">PostgreSQL + Apache AGE · 17 node types · 26 edge types</span>
+        </div>
+        <div class="tech-badge">
+          <span class="badge-name">Hybrid Search</span>
+          <span class="badge-desc">Redis FT.HYBRID · BM25 + vector · RRF fusion</span>
+        </div>
+        <div class="tech-badge">
+          <span class="badge-name">Self-hosted Embeddings</span>
+          <span class="badge-desc">BAAI/bge-base-en-v1.5 · runs on CPU · data never leaves your machine</span>
+        </div>
+        <div class="tech-badge">
+          <span class="badge-name">22 MCP Tools</span>
+          <span class="badge-desc">memory · goals · tasks · learnings · decisions · workflows</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="section how" id="how-it-works">
+    <div class="container">
+      <h2 class="section-title fade-in">How it works</h2>
+      <div class="steps">
+        <div class="step fade-in">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <h3>Deploy</h3>
+            <p>Run on any Linux box — a VPS, homelab server, or Proxmox LXC. One command starts everything.</p>
+            <pre class="code-block"><code>docker compose up -d</code></pre>
+          </div>
+        </div>
+        <div class="step fade-in">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <h3>Connect via Tailscale</h3>
+            <p>Install Tailscale on your server and laptop. Your server gets a stable private IP (<code>100.x.x.x</code>). No port forwarding, no firewall rules — Tailscale encrypts everything at the network layer.</p>
+            <pre class="code-block"><code># Install and bring up Tailscale
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+
+# Expose agentmemory to your tailnet (runs in background)
+tailscale serve --bg --tcp 8081 tcp://10.20.30.222:8081</code></pre>
+            <p class="step-note"><code>tailscale serve --tcp</code> binds port <code>8081</code> on your Tailscale IP so only devices in your tailnet can reach it — no firewall rules needed. The service stays running after you close the terminal.</p>
+          </div>
+        </div>
+        <div class="step fade-in">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <h3>Add to your agent</h3>
+            <p>Point Cursor, Claude Desktop, or any MCP-compatible agent at your server's Tailscale IP. Plain HTTP is safe — Tailscale handles encryption.</p>
+            <pre class="code-block"><code>{
+  "mcpServers": {
+    "agentmemory": {
+      "url": "http://100.x.x.x:8081/mcp"
+    }
+  }
+}</code></pre>
+            <p class="step-note">Port <code>8081</code> is used in this example. Avoid ports already in use on your server — common conflicts: <code>8006</code> (Proxmox), <code>3000</code>, <code>8080</code>. You can change the port in <code>docker-compose.yml</code>.</p>
+          </div>
+        </div>
+        <div class="step fade-in">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <h3>Remember</h3>
+            <p>Your agent now stores decisions, recalls context, tracks goals, and picks up exactly where you left off — across every session and every tool.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SYSTEM REQUIREMENTS -->
+  <section class="section requirements" id="requirements">
+    <div class="container">
+      <h2 class="section-title fade-in">System requirements</h2>
+      <p class="section-sub fade-in">Runs comfortably on a small VPS or homelab node.</p>
+      <div class="req-table fade-in">
+        <div class="req-row">
+          <span class="req-label">CPU</span>
+          <span class="req-value">2+ cores — embeddings run on CPU, no GPU needed</span>
+        </div>
+        <div class="req-row">
+          <span class="req-label">RAM</span>
+          <span class="req-value">4 GB minimum — PostgreSQL + Redis + embedding model</span>
+        </div>
+        <div class="req-row">
+          <span class="req-label">Disk</span>
+          <span class="req-value">2 GB for Docker images, grows with your memory corpus</span>
+        </div>
+        <div class="req-row">
+          <span class="req-label">OS</span>
+          <span class="req-value">Any Linux with Docker — Ubuntu, Debian, Proxmox LXC</span>
+        </div>
+        <div class="req-row">
+          <span class="req-label">Network</span>
+          <span class="req-value">Tailscale recommended for secure private access</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TIMELINE / RELEVANCE -->
+  <section class="section timeline-section" id="timeline">
+    <div class="container">
+      <h2 class="section-title fade-in">Memory that stays relevant</h2>
+      <p class="section-sub fade-in">Not every memory is equal. agentmemory.md scores each node by recency, importance, and graph proximity — so the right context surfaces first.</p>
+      <div class="timeline fade-in">
+        <div class="timeline-axis">
+          <span class="tl-label-start">Now</span>
+          <span class="tl-label-end">30 days ago</span>
+        </div>
+        <div class="timeline-track">
+          <div class="tl-item tl-item--high" style="left: 4%">
+            <div class="tl-dot"></div>
+            <div class="tl-card">
+              <span class="tl-score">0.97</span>
+              <span class="tl-text">Decided: switch from Qdrant to Redis for hybrid search</span>
+              <span class="tl-meta">Decision · 2h ago</span>
+            </div>
+          </div>
+          <div class="tl-item tl-item--high" style="left: 14%">
+            <div class="tl-dot"></div>
+            <div class="tl-card">
+              <span class="tl-score">0.91</span>
+              <span class="tl-text">Goal: ship landing page before end of sprint</span>
+              <span class="tl-meta">Goal · 1d ago</span>
+            </div>
+          </div>
+          <div class="tl-item tl-item--med" style="left: 32%">
+            <div class="tl-dot"></div>
+            <div class="tl-card">
+              <span class="tl-score">0.74</span>
+              <span class="tl-text">John prefers TypeScript on the frontend</span>
+              <span class="tl-meta">Preference · 5d ago</span>
+            </div>
+          </div>
+          <div class="tl-item tl-item--med" style="left: 52%">
+            <div class="tl-dot"></div>
+            <div class="tl-card">
+              <span class="tl-score">0.61</span>
+              <span class="tl-text">Stakeholder: Jane owns the billing integration</span>
+              <span class="tl-meta">Person · 12d ago</span>
+            </div>
+          </div>
+          <div class="tl-item tl-item--low" style="left: 74%">
+            <div class="tl-dot"></div>
+            <div class="tl-card">
+              <span class="tl-score">0.38</span>
+              <span class="tl-text">Tried monorepo setup — too much overhead for team size</span>
+              <span class="tl-meta">Learning · 22d ago</span>
+            </div>
+          </div>
+          <div class="tl-item tl-item--low" style="left: 90%">
+            <div class="tl-dot"></div>
+            <div class="tl-card">
+              <span class="tl-score">0.21</span>
+              <span class="tl-text">Deploy workflow: push to main triggers Kamal</span>
+              <span class="tl-meta">Workflow · 29d ago</span>
+            </div>
+          </div>
+        </div>
+        <div class="timeline-fade-right" aria-hidden="true"></div>
+      </div>
+      <p class="timeline-note fade-in">Scoring formula: <code>similarity × 0.80 + graph_boost × 0.15 + recency × 0.05</code> — weighted toward what matters <em>right now</em>.</p>
+    </div>
+  </section>
+
+  <!-- COMPARISON -->
+  <section class="section comparison" id="comparison">
+    <div class="container">
+      <h2 class="section-title fade-in">Why not a flat file?</h2>
+      <p class="section-sub fade-in">Simple flat-file memory works well for a single small project. Here's the honest comparison.</p>
+      <div class="compare-table fade-in">
+        <div class="compare-header">
+          <div class="compare-col-label"></div>
+          <div class="compare-col">Flat file</div>
+          <div class="compare-col compare-col-highlight">agentmemory.md</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-col-label">Setup</div>
+          <div class="compare-col">Zero — just a file</div>
+          <div class="compare-col compare-col-highlight">Docker + ApacheAGE + Redis + Embeddings</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-col-label">Corpus limit</div>
+          <div class="compare-col">~50–100 KB before context overflow</div>
+          <div class="compare-col compare-col-highlight">Unlimited</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-col-label">Retrieval at scale</div>
+          <div class="compare-col">LLM reads everything</div>
+          <div class="compare-col compare-col-highlight">Hybrid search + graph boost</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-col-label">Structure</div>
+          <div class="compare-col">Unstructured text</div>
+          <div class="compare-col compare-col-highlight">Typed nodes, edges, relationships</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-col-label">MCP API</div>
+          <div class="compare-col">Agent edits text file</div>
+          <div class="compare-col compare-col-highlight">22 purpose-built tools</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-col-label">Conflict handling</div>
+          <div class="compare-col">Manual</div>
+          <div class="compare-col compare-col-highlight">SUPERSEDES edges + auto-detection</div>
+        </div>
+      </div>
+      <p class="compare-note fade-in">
+        <strong>Use a flat file when</strong> you have one project, short memory, and don't want infrastructure.<br />
+        <strong>Use agentmemory.md when</strong> you have multiple projects, growing history, or want structured goal and task tracking.
+      </p>
+    </div>
+  </section>
+
+  <!-- SELF-HOST vs MANAGED -->
+  <section class="section pricing" id="pricing">
+    <div class="container">
+      <h2 class="section-title fade-in">Two ways to run it</h2>
+      <div class="pricing-grid">
+        <div class="pricing-card fade-in">
+          <div class="pricing-card-label">Self-hosted</div>
+          <div class="pricing-card-price">Free</div>
+          <p class="pricing-card-desc">Open source. Your data stays on your server. Full control over every component.</p>
+          <ul class="pricing-list">
+            <li>Docker Compose setup</li>
+            <li>Tailscale for secure access</li>
+            <li>All 22 MCP tools</li>
+            <li>CLI included</li>
+            <li>Runs on any Linux box</li>
+          </ul>
+          <a href="#github-repo" class="btn btn-primary" target="_blank" rel="noopener">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+            View Source on GitHub
+          </a>
+        </div>
+        <div class="pricing-card pricing-card-managed fade-in">
+          <div class="pricing-card-label">Managed</div>
+          <div class="pricing-card-price">Coming soon</div>
+          <p class="pricing-card-desc">Zero infrastructure. We run the server, handle updates, and keep your memory available everywhere.</p>
+          <ul class="pricing-list">
+            <li>No Docker, no server</li>
+            <li>Always online</li>
+            <li>All 22 MCP tools</li>
+            <li>Connect from any device</li>
+            <li>Automatic updates</li>
+          </ul>
+          <a href="#waitlist" class="btn btn-secondary">
+            Join the waitlist
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <span class="footer-logo">agentmemory<span class="nav-logo-ext">.md</span></span>
+        <div class="footer-links">
+          <a href="#github-repo" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://gitlab.com/tonyzorin/agentmemory.md" target="_blank" rel="noopener">GitLab</a>
+          <a href="#github-repo" target="_blank" rel="noopener">Docs</a>
+        </div>
+        <span class="footer-copy">Open source · MIT License</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

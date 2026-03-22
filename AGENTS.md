@@ -12,13 +12,13 @@ A node's embedding is computed from its entire content. When a node contains "Jo
 **Good (focused):**
 ```python
 memory_store("John worked at Acme Corp as Head of Product from 2018 to 2022", node_type="Memory")
-memory_store("John joined ShipTrack as VP of Product in 2023", node_type="Memory")
+memory_store("John joined Acme Corp as VP of Product in 2023", node_type="Memory")
 memory_store("John's career focus is B2B SaaS and logistics technology", node_type="Memory")
 ```
 
 **Bad (mixed):**
 ```python
-memory_store("John career: Acme Corp Head of Product 2018-2022, joined ShipTrack 2023, focus on B2B SaaS and logistics", node_type="Memory")
+memory_store("John career: Acme Corp Head of Product 2018-2022, joined Dashboard Co 2023, focus on B2B SaaS and analytics", node_type="Memory")
 ```
 
 **Rule of thumb:** If a node's content contains more than one subject, or is longer than ~2 sentences, split it.
@@ -29,7 +29,7 @@ memory_split(
     memory_id="<id-of-long-node>",
     chunks=[
         "John worked at Acme Corp as Head of Product from 2018 to 2022",
-        "John joined ShipTrack as VP of Product in 2023",
+        "John joined Acme Corp as VP of Product in 2023",
         "John's career focus is B2B SaaS and logistics technology",
     ]
 )
@@ -124,21 +124,101 @@ memory auto-link
 
 ## When to Recall Memories
 
-**Always recall at the start of a session:**
-- What projects are you working on? → `memory_recall("current projects")`
-- What are the active goals? → `goal_manage(action="list")`
-- What tasks are pending? → `task_manage(action="list")`
+Do NOT call memory tools unconditionally. Classify the request first, then fetch only what the tier requires.
+
+### Step 1 — Classify the request (no MCP calls yet)
+
+Read the user's message and any open files. Assign the lowest-numbered tier that fits:
+
+| Tier | When | Signals |
+|------|------|---------|
+| **0** | Direct memory instruction | "check mem", "what do you know about me", explicit request for full memory context |
+| **1** | Planning / prioritization | "what should I work on", "morning briefing", cross-project strategy, goal review |
+| **2** | Any work — project unclear | Question where no open files or project name disambiguates which project it belongs to |
+| **3** | Project work — project is obvious | Open files or explicit project name makes the project clear; feature work, refactoring, deployment |
+| **4** | Narrow technical work — project is obvious | Bug fix, linter error, specific file edit where the project is clear from open files |
+
+### Step 2 — Fetch only what the tier requires
+
+**Tier 0 — Full memory dump:**
+```python
+memory_profile()  # full, include_recent=True
+```
+
+**Tier 1 — Compact planning context:**
+```python
+memory_profile(include_recent=False, limit=5)
+goal_manage(action="list")
+task_manage(action="list")
+```
+
+**Tier 2 — Discover project, then pull its context:**
+```python
+# Lightweight directory — returns only id, node_type, name (~1K tokens)
+memory_entities(node_type="Project")
+
+# Identify the relevant project from the list, then pull just that project
+memory_context(entity_id="<matched-project-id>", depth=2)
+```
+
+**Tier 3 — Scoped recall for the known project:**
+```python
+# Use the project tag inferred from workspace or project name
+memory_recall("<specific question>", tags=["acme-api"])
+```
+
+**Tier 4 — Nothing.** Project is obvious from open files. Do not call any memory tools.
+
+### Examples
+
+| User message | Open files | Tier | Calls |
+|---|---|---|---|
+| "fix the linter error in utils.py" | `utils.py` (project clear) | 4 | none |
+| "fix the linter error in utils.py" | none / unclear | 2 | `memory_entities` → pick project → `memory_context` |
+| "add auth to the API" | `acme-api/` files open | 3 | `memory_recall("auth decisions", tags=["acme-api"])` |
+| "how should I structure the auth flow?" | none / ambiguous | 2 | `memory_entities` → pick project → `memory_context` |
+| "what should I work on today?" | any | 1 | compact `memory_profile` + goals + tasks |
+| "check mem" | any | 0 | full `memory_profile` |
+
+### Key rules
+
+- **Never call all tools at once** unless the user explicitly asks for a full memory dump (Tier 0).
+- **Project unclear = Tier 2 minimum**, even for bug fixes — use `memory_entities` to find the project first.
+- **Project obvious = check scope**: feature/refactor/deploy → Tier 3; narrow fix → Tier 4 (nothing).
+- **`memory_context` is preferred over `memory_recall`** once you have the entity ID (richer, no query drift).
 
 **Recall before:**
-- Starting work on a project → `memory_recall("<project name>")`
-- Making architectural decisions → `memory_recall("decisions about <topic>")`
-- Trying something that might have been tried before → `memory_recall("<approach>")`
+- Making architectural decisions → `memory_recall("decisions about <topic>", tags=["<project>"])`
+- Trying something that might have been tried before → `memory_recall("<approach>", tags=["<project>"])`
 
 **Use anchor_entity_id for richer results:**
-```
+```python
 memory_recall("deployment issues", anchor_entity_id="<project-id>")
 ```
 This boosts memories connected to the project in the knowledge graph.
+
+## Project Tags
+
+Tags scope memories to projects. Include at least one project tag in every `memory_store`, `learning_store`, `goal_manage`, and `task_manage` call.
+
+**Discover existing project tags dynamically:**
+```python
+memory_entities(node_type="Project")
+```
+
+**Use tags in every store/recall call:**
+```python
+memory_store("Switched to Redis 8", node_type="Decision", tags=["acme-api"])
+memory_recall("deployment issues", tags=["acme-api"])
+task_manage(action="create", name="Add auth endpoint", tags=["acme-api"])
+```
+
+**Bootstrap: if no projects exist yet, store the first one:**
+```python
+memory_store("Acme API: Python/FastAPI SaaS backend", node_type="Project", tags=["acme-api"])
+```
+
+Tags are free-form strings — use short, lowercase, hyphenated slugs that match your project names. Multiple tags are allowed when a memory spans projects.
 
 ## Memory Types
 
@@ -147,14 +227,14 @@ This boosts memories connected to the project in the knowledge graph.
 | `Memory` | General facts, observations | 0.50 | "John is based in Berlin" |
 | `Learning` | Failed experiments, what NOT to do | 0.65 | "psycopg2-binary doesn't work on Python 3.14" |
 | `Decision` | Key choices with rationale | 0.70 | "Use Redis for vector search" |
-| `Preference` | Project-specific preferences | 0.55 | "shiptrack uses Black for formatting" |
-| `Workflow` | Reusable processes | 0.65 | "How to deploy ShipTrack to production" |
-| `Project` | Project profiles | 0.60 | "ShipTrack: Python/FastAPI, runs on VM prod-01" |
-| `Goal` | OKRs and objectives | 0.80 | "Launch ShipTrack GTM by Q2 2026" |
+| `Preference` | Project-specific preferences | 0.55 | "acme-api uses Black for formatting" |
+| `Workflow` | Reusable processes | 0.65 | "How to deploy Acme API to production" |
+| `Project` | Project profiles | 0.60 | "Acme API: Python/FastAPI, runs on VM prod-01" |
+| `Goal` | OKRs and objectives | 0.80 | "Launch Acme API GTM by Q2 2026" |
 | `Initiative` | Campaigns under goals | 0.55 | "MCP integration for customers" |
 | `Task` | Concrete work items | 0.45 | "Build SSE endpoint for MCP" |
-| `Competitor` | Competing products | 0.55 | "Canny: feature voting tool" |
-| `Metric` | KPIs over time | 0.50 | "shiptrack monthly active users" |
+| `Competitor` | Competing products | 0.55 | "Acme Competitor: SaaS analytics tool" |
+| `Metric` | KPIs over time | 0.50 | "acme-api monthly active users" |
 | `CustomerFeedback` | User feedback | 0.60 | "User says onboarding is confusing" |
 
 ## Relationship Types
@@ -176,8 +256,10 @@ Use `memory_relate` to link entities explicitly:
 ## Common Workflows
 
 ### Start of session
-```
-memory_recall("current projects and goals")
+
+See "When to Recall Memories" above — classify first, then fetch only what the tier requires. For a planning session (Tier 1):
+```python
+memory_profile(include_recent=False, limit=5)
 goal_manage(action="list")
 task_manage(action="list")
 ```
@@ -212,7 +294,7 @@ This is how you build a rich knowledge graph automatically:
 ```python
 # 1. Store the new memory
 result = memory_store(
-    content="Sarah is the sales lead for the ShipTrack enterprise deal",
+    content="Sarah is the sales lead for the Acme API enterprise deal",
     node_type="Person",
     name="Sarah",
 )
@@ -221,13 +303,13 @@ new_id = result["id"]
 # 2. Find existing entities to link to
 entities = memory_entities()  # or memory_entities(node_type="Project")
 
-# 3. Identify relevant ones (e.g. ShipTrack project, enterprise deal decision)
+# 3. Identify relevant ones (e.g. Acme API project, enterprise deal decision)
 #    and create explicit edges
-memory_relate(from_id=new_id, to_id="<shiptrack-project-id>", edge_type="INVOLVED_IN")
+memory_relate(from_id=new_id, to_id="<acme-api-project-id>", edge_type="INVOLVED_IN")
 memory_relate(from_id=new_id, to_id="<enterprise-deal-decision-id>", edge_type="RELATED_TO")
 
-# 4. Now recall with graph boost — Sarah surfaces when asking about ShipTrack
-memory_recall("enterprise deal contacts", anchor_entity_id="<shiptrack-project-id>")
+# 4. Now recall with graph boost — Sarah surfaces when asking about Acme API
+memory_recall("enterprise deal contacts", anchor_entity_id="<acme-api-project-id>")
 ```
 
 **Edge type guide for wiring:**
@@ -241,7 +323,7 @@ memory_recall("enterprise deal contacts", anchor_entity_id="<shiptrack-project-i
 ### Link people to projects (simple case)
 ```python
 person = memory_store(content="Sarah — enterprise deal contact", node_type="Person", name="Sarah")
-project = memory_store(content="ShipTrack project", node_type="Project", name="shiptrack")
+project = memory_store(content="Acme API project", node_type="Project", name="acme-api")
 memory_relate(from_id=person["id"], to_id=project["id"], edge_type="INVOLVED_IN")
 memory_recall("enterprise deal contacts", anchor_entity_id=project["id"])
 ```
@@ -285,7 +367,7 @@ memory_split(
     memory_id="<id-of-long-node>",
     chunks=[
         "John worked at Acme Corp as Head of Product from 2018 to 2022",
-        "John joined ShipTrack as VP of Product in 2023",
+        "John joined Acme Corp as VP of Product in 2023",
         "John's career focus is B2B SaaS and logistics technology",
     ]
 )
