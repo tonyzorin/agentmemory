@@ -42,17 +42,17 @@ services:
       EMBEDDING_MODEL: BAAI/bge-base-en-v1.5
       EMBEDDING_DIM: "768"
       MCP_HOST: "0.0.0.0"
-      MCP_PORT: "59999"
+      MCP_PORT: "8081"
       LOG_LEVEL: INFO
     ports:
-      - "59999:59999"
+      - "8081:8081"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:59999/mcp')\" 2>/dev/null || exit 0"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/mcp')\" 2>/dev/null || exit 0"]
       interval: 10s
       timeout: 5s
       retries: 12

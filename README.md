@@ -51,7 +51,7 @@ sudo tailscale up
 tailscale ip -4  # note this IP
 ```
 
-Port 59999 must not be open to the public internet — it has no authentication. Tailscale puts your server and laptop on the same private overlay network so you can reach `http://100.x.x.x:59999` from anywhere without exposing anything publicly.
+Port 8081 must not be open to the public internet — it has no authentication. Tailscale puts your server and laptop on the same private overlay network so you can reach `http://100.x.x.x:8081` from anywhere without exposing anything publicly.
 
 ### 3. Add to your agent
 
@@ -61,7 +61,7 @@ Point Cursor, Claude Desktop, or any MCP-compatible agent at your server's Tails
 {
   "mcpServers": {
     "agentmemory": {
-      "url": "http://100.x.x.x:59999/mcp"
+      "url": "http://100.x.x.x:8081/mcp"
     }
   }
 }
@@ -159,7 +159,7 @@ Cursor supports the modern Streamable HTTP transport natively. In `~/.cursor/mcp
 {
   "mcpServers": {
     "agentmemory": {
-      "url": "http://100.x.x.x:59999/mcp"
+      "url": "http://100.x.x.x:8081/mcp"
     }
   }
 }
@@ -183,7 +183,7 @@ Claude Desktop does not yet support Streamable HTTP natively. Use
       "command": "npx",
       "args": [
         "mcp-remote",
-        "http://100.x.x.x:59999/mcp",
+        "http://100.x.x.x:8081/mcp",
         "--allow-http"
       ]
     }
@@ -231,7 +231,7 @@ After copying, customize the project tags section for your own projects.
 | Component | Technology |
 |-----------|-----------|
 | Language | Python 3.14 |
-| MCP Server | FastMCP v3 (Streamable HTTP on port 59999) |
+| MCP Server | FastMCP v3 (Streamable HTTP on port 8081) |
 | Vector Search | Redis 8.6 (FT.HYBRID: BM25 + vector, RRF fusion) |
 | Knowledge Graph | PostgreSQL 18 + Apache AGE 1.7.0 |
 | Embeddings | `BAAI/bge-base-en-v1.5` (768-dim, CPU, MTEB ~63) |

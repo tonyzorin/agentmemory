@@ -56,7 +56,7 @@ To access the memory system from other machines (e.g., your laptop's Cursor IDE)
 
 ```bash
 # On VM 817 — start Streamable HTTP server (recommended)
-.venv/bin/python -m agentmemory.mcp.server --transport streamable-http --port 59999
+.venv/bin/python -m agentmemory.mcp.server --transport streamable-http --port 8081
 ```
 
 Then in your local Cursor `~/.cursor/mcp.json`:
@@ -65,7 +65,7 @@ Then in your local Cursor `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "agentmemory": {
-      "url": "http://ai-agent:59999/mcp"
+      "url": "http://ai-agent:8081/mcp"
     }
   }
 }

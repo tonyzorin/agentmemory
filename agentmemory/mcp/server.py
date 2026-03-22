@@ -10,10 +10,10 @@ Usage (stdio, for OpenClaw or local agents):
     python -m agentmemory.mcp.server
 
 Usage (Streamable HTTP, for remote access — works with Cursor mcp.json):
-    python -m agentmemory.mcp.server --transport streamable-http --port 59999
+    python -m agentmemory.mcp.server --transport streamable-http --port 8081
 
 Usage (SSE, for legacy remote access):
-    python -m agentmemory.mcp.server --transport sse --port 59999
+    python -m agentmemory.mcp.server --transport sse --port 8081
 """
 
 from __future__ import annotations
