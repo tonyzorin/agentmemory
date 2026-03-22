@@ -77,7 +77,20 @@ Point Cursor, Claude Desktop, or any MCP-compatible agent at your server's Tails
 
 Plain HTTP is safe here — Tailscale handles encryption at the network layer.
 
-### 4. Remember
+### 4. Add agent rules
+
+Copy the rules file for your agent so it knows *when* to fetch and store memories automatically — without you having to ask every time.
+
+| Agent | File | Where to put it |
+|-------|------|-----------------|
+| Cursor | [`rules/cursor.mdc`](rules/cursor.mdc) | `.cursor/rules/agentmemory.mdc` in your project |
+| Claude Desktop | [`rules/CLAUDE.md`](rules/CLAUDE.md) | Project → Set custom instructions → paste contents |
+| Claude Code | [`rules/CLAUDE.md`](rules/CLAUDE.md) | Project root as `CLAUDE.md` |
+| ChatGPT | [`rules/chatgpt-instructions.md`](rules/chatgpt-instructions.md) | Settings → Personalization → Custom Instructions |
+
+> Without rules, the agent only uses memory when you explicitly ask. With rules, it fetches context automatically at the start of each session and stores decisions as they happen.
+
+### 5. Remember
 
 Your agent now stores decisions, recalls context, tracks goals, and picks up exactly where you left off — across every session and every tool.
 
