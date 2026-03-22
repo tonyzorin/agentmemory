@@ -188,7 +188,7 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 
 # Expose agentmemory to your tailnet (runs in background)
-tailscale serve --bg --tcp 8081 tcp://10.20.30.222:8081</code></pre>
+tailscale serve --bg --tcp 8081 tcp://localhost:8081</code></pre>
             <p class="step-note"><code>tailscale serve --tcp</code> binds port <code>8081</code> on your Tailscale IP so only devices in your tailnet can reach it — no firewall rules needed. The service stays running after you close the terminal.</p>
           </div>
         </div>
