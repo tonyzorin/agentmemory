@@ -49,9 +49,12 @@ Install Tailscale on your server and laptop. Your server gets a stable private I
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 tailscale ip -4  # note this IP
+
+# Expose agentmemory to your tailnet (persists across reboots)
+tailscale serve --bg --tcp 8081 tcp://localhost:8081
 ```
 
-Port 8081 must not be open to the public internet — it has no authentication. Tailscale puts your server and laptop on the same private overlay network so you can reach `http://100.x.x.x:8081` from anywhere without exposing anything publicly.
+Port 8081 must not be open to the public internet — it has no authentication. `tailscale serve` binds port 8081 on your Tailscale IP so only devices in your tailnet can reach it — no firewall rules needed.
 
 ### 3. Add to your agent
 

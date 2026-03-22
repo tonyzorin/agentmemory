@@ -52,11 +52,14 @@ Add to `~/.openclaw/openclaw.json` on VM 817:
 
 ## Remote Access (Streamable HTTP)
 
-To access the memory system from other machines (e.g., your laptop's Cursor IDE):
+To access the memory system from other machines (e.g., your laptop's Cursor IDE), use Docker Compose (recommended) and expose via Tailscale:
 
 ```bash
-# On VM 817 — start Streamable HTTP server (recommended)
-.venv/bin/python -m agentmemory.mcp.server --transport streamable-http --port 8081
+# Start all services via Docker Compose
+docker compose up -d
+
+# Expose port 8081 on your Tailscale IP (persists across reboots)
+tailscale serve --bg --tcp 8081 tcp://localhost:8081
 ```
 
 Then in your local Cursor `~/.cursor/mcp.json`:
