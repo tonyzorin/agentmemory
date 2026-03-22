@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: openclaw
       POSTGRES_PASSWORD: openclaw
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pg_data:/var/lib/postgresql
       - ./agentmemory/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
@@ -22,7 +22,7 @@ services:
     image: redis:8.6
     container_name: agentmemory-redis
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
     command: redis-server --save 60 1 --loglevel warning
@@ -42,25 +42,23 @@ services:
       EMBEDDING_MODEL: BAAI/bge-base-en-v1.5
       EMBEDDING_DIM: "768"
       MCP_HOST: "0.0.0.0"
-      MCP_PORT: "8081"
+      MCP_PORT: "8006"
       LOG_LEVEL: INFO
+      RERANKER_ENABLED: "true"
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8006:8006"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/mcp')\" 2>/dev/null || exit 0"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8006/mcp')\" 2>/dev/null || exit 0"]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 60s
     restart: unless-stopped
-    # Override to run CLI or tests:
-    #   docker compose run --rm app memory stats
-    #   docker compose run --rm app pytest
 
 volumes:
   pg_data:
