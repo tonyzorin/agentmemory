@@ -1,10 +1,11 @@
 # agentmemory.md
 
-Persistent memory for AI agents — semantic search, knowledge graph, and structured nodes.
+Persistent memory for AI agents — semantic search, knowledge graph, and 22 MCP tools.
 
 Works with any MCP-compatible agent: [Cursor](https://cursor.so), [Claude Desktop](https://claude.ai), [OpenClaw](https://github.com/openclaw/openclaw), and more.
 
-Hosted at: https://gitlab.com/tonyzorin/agentmemory.md and https://agentmemory.md (soon)
+**Repository:** https://gitlab.com/tonyzorin/agentmemory  
+**Website:** https://agentmemory.md
 
 ---
 
@@ -13,40 +14,66 @@ Hosted at: https://gitlab.com/tonyzorin/agentmemory.md and https://agentmemory.m
 
 > **Note:** Replace `YOUR_TAILSCALE_IP` in the Cursor install link with your server's Tailscale IP before using. See [Connecting Agents](#connecting-agents) for setup instructions.
 
-## Why agentmemory.md?
+---
 
-Most AI coding assistants forget everything between sessions. You re-explain the same context, re-make the same decisions, and watch the agent suggest approaches you already tried and rejected. agentmemory.md gives your agent a brain that persists across every session and every tool.
+## The forgetting problem
 
-### Decisions and context
+Every session starts from zero. You re-explain the same project context. The agent re-asks questions you've already answered. It suggests approaches you already tried and rejected — without knowing why.
 
-- **What decisions you've made** — the agent never re-asks "should we use Redis or Postgres?" when you decided that three weeks ago, with rationale stored
-- **What your projects are** — stack, repo path, deploy commands, environments — the agent understands your project without a three-message warm-up
-- **What you've already tried** — failed experiments and their root causes are recalled before the agent suggests the same approach again
-- **How things are deployed** — deployment workflows, environment quirks, gotchas that took hours to figure out
+agentmemory.md gives your agent a brain that persists across every session and every tool:
 
-### People and relationships
+- **Decisions with rationale** — the agent never re-asks "should we use Redis or Postgres?" when you settled that three weeks ago
+- **Project context** — stack, repo path, deploy commands, environments — no more three-message warm-up
+- **Failed experiments** — root causes stored and recalled before the agent suggests the same approach again
+- **Goals and tasks** — the agent picks up exactly where you left off
+- **People and relationships** — stakeholders, customers, collaborators — who owns what, what customers have said
+- **Preferences and patterns** — coding style, tooling preferences, anti-patterns, reusable workflows
 
-- **Who the key people are** — stakeholders, customers, collaborators — the agent knows who owns what and who to contact for what
-- **What customers have said** — feedback stored, linked to products, searchable by sentiment and project
-- **Who works on what** — graph edges connecting people to projects and goals
+---
 
-### Goals and work structure
+## How it works
 
-- **What you're working toward** — goals, initiatives, and tasks tracked across sessions; the agent picks up where you left off
-- **What's done vs in-progress** — task status persists; no more "what was I doing?" at the start of a session
-- **What's blocking what** — relationships between decisions, tasks, and learnings; the agent understands dependencies
+### 1. Deploy
 
-### Preferences and patterns
+Run on any Linux box — a VPS, homelab server, or Proxmox LXC. One command starts everything:
 
-- **How you like things done** — coding style, tooling preferences, patterns you've established — per-project or global
-- **What to avoid** — anti-patterns, deprecated approaches, things that don't work in your environment
-- **Reusable workflows** — deployment steps, testing procedures, release checklists — recalled when relevant
+```bash
+docker compose up -d
+```
 
-### Over time
+### 2. Connect via Tailscale
 
-- **Conflict detection** — when you change your mind ("switched from Python to Rust"), the old preference is marked superseded so the agent always works from current truth
-- **Corpus maintenance** — near-duplicate memories consolidate over months; the signal stays clean as the corpus grows
-- **Cross-project knowledge** — learnings from one project surface when relevant in another
+Install Tailscale on your server and laptop. Your server gets a stable private IP (`100.x.x.x`). No port forwarding, no firewall rules — Tailscale encrypts everything at the network layer.
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+tailscale ip -4  # note this IP
+```
+
+Port 59999 must not be open to the public internet — it has no authentication. Tailscale puts your server and laptop on the same private overlay network so you can reach `http://100.x.x.x:59999` from anywhere without exposing anything publicly.
+
+### 3. Add to your agent
+
+Point Cursor, Claude Desktop, or any MCP-compatible agent at your server's Tailscale IP:
+
+```json
+{
+  "mcpServers": {
+    "agentmemory": {
+      "url": "http://100.x.x.x:59999/mcp"
+    }
+  }
+}
+```
+
+Plain HTTP is safe here — Tailscale handles encryption at the network layer.
+
+### 4. Remember
+
+Your agent now stores decisions, recalls context, tracks goals, and picks up exactly where you left off — across every session and every tool.
+
+---
 
 ## Architecture
 
@@ -82,6 +109,22 @@ flowchart LR
 
 The reranker is **disabled by default**. Enable it when your corpus exceeds ~1000 nodes or you need higher retrieval precision (see [Reranker](#reranker) below).
 
+---
+
+## System Requirements
+
+Runs comfortably on a small VPS or homelab node.
+
+| Component | Minimum |
+|-----------|---------|
+| CPU | 2+ cores — embeddings run on CPU, no GPU needed |
+| RAM | 4 GB — PostgreSQL + Redis + embedding model |
+| Disk | 2 GB for Docker images, grows with your memory corpus |
+| OS | Any Linux with Docker — Ubuntu, Debian, Proxmox LXC |
+| Network | Tailscale recommended for secure private access |
+
+---
+
 ## Quick Start
 
 ```bash
@@ -104,61 +147,9 @@ memory profile
 memory stats
 ```
 
-## Connecting Agents
-
-agentmemory.md runs as a server on your self-hosted machine (a VPS, homelab, or VM).
-Your AI agents connect to it remotely. The recommended way to expose it privately is
-[Tailscale](https://tailscale.com) — a zero-config VPN that gives every device on your
-network a stable private IP, with no firewall rules or port-forwarding required.
-
-### Why Tailscale?
-
-Port 59999 must not be open to the public internet — it has no authentication.
-Tailscale puts your server and your laptop on the same private overlay network,
-so you can reach `http://100.x.x.x:59999` from anywhere without exposing anything publicly.
-
-### Step 1 — Install Tailscale on the server
-
-```bash
-# On the server running agentmemory.md
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
-```
-
-Note the Tailscale IP shown (`100.x.x.x`). You can also find it later with:
-
-```bash
-tailscale ip -4
-```
-
-### Step 2 — Install Tailscale on your laptop/desktop
-
-Download from [tailscale.com/download](https://tailscale.com/download), sign in with the
-same account. Both machines will appear in your [Tailscale admin console](https://login.tailscale.com/admin/machines).
-
-### Step 3 — Start agentmemory.md
-
-The server needs to bind on `0.0.0.0` (all interfaces) so Tailscale traffic can reach it.
-
-**Streamable HTTP** (Cursor, Claude Code, any modern MCP client):
-
-```bash
-python -m agentmemory.mcp.server --transport streamable-http --port 59999
-```
-
-**SSE** (Claude Desktop, legacy clients):
-
-```bash
-python -m agentmemory.mcp.server --transport sse --port 59999
-```
-
-Or run both via Docker Compose (already configured for `0.0.0.0:59999`):
-
-```bash
-docker compose up -d
-```
-
 ---
+
+## Connecting Agents
 
 ### Connect — Cursor IDE
 
@@ -233,6 +224,8 @@ queries). See [AGENTS.md](AGENTS.md) for the full specification.
 
 After copying, customize the project tags section for your own projects.
 
+---
+
 ## Stack
 
 | Component | Technology |
@@ -243,6 +236,8 @@ After copying, customize the project tags section for your own projects.
 | Knowledge Graph | PostgreSQL 18 + Apache AGE 1.7.0 |
 | Embeddings | `BAAI/bge-base-en-v1.5` (768-dim, CPU, MTEB ~63) |
 | CLI | Click + Rich (`memory` or `mem`) |
+
+---
 
 ## Scoring
 
@@ -260,6 +255,8 @@ Every `memory_recall` result includes these fields:
 **Formula (similarity-adaptive):**
 - Strong match (`similarity > 0.6`): `(sim×0.80 + graph×0.15 + recency×0.05) × importance_weight`
 - Weak/medium match: `(sim×0.50 + graph×0.20 + recency×0.20 + importance×0.10) × importance_weight`
+
+---
 
 ## Reranker
 
@@ -287,6 +284,8 @@ environment:
 
 The model is lazy-loaded on first use and uses the same `sentence-transformers` dependency already in the stack — no new installs required.
 
+---
+
 ## Knowledge Graph
 
 17 node types: Memory, Learning, Decision, Goal, Initiative, Task, Project, Person,
@@ -313,6 +312,8 @@ memory_supersede(new_id=result["id"], old_id="<old-id>")
 
 Superseded nodes are kept in the graph for audit purposes but filtered from all `memory_recall` results.
 
+---
+
 ## MCP Tools (22)
 
 **Core memory:** `memory_store`, `memory_recall`, `memory_update`, `memory_relate`, `memory_context`, `memory_forget`, `memory_supersede`, `memory_entities`, `memory_split`, `memory_batch_update`, `memory_profile`
@@ -322,6 +323,8 @@ Superseded nodes are kept in the graph for audit purposes but filtered from all 
 **Knowledge:** `learning_store`, `workflow_store`
 
 **Market intelligence:** `competitor_manage`, `metric_record`, `metric_query`, `customer_feedback_store`
+
+---
 
 ## CLI Reference
 
@@ -378,6 +381,8 @@ memory consolidate --no-dry-run --type Memory
 
 The command groups semantically similar nodes into clusters and merges each cluster into its highest-importance node, preserving content and re-attaching graph edges.
 
+---
+
 ## agentmemory.md vs a flat memory file
 
 Many agent frameworks offer simple flat-file memory (a markdown file with notes). Here's an honest comparison:
@@ -393,8 +398,20 @@ Many agent frameworks offer simple flat-file memory (a markdown file with notes)
 | **Conflict handling** | Manual | SUPERSEDES edges + potential_conflict detection |
 | **Maintenance** | None | `gc`, `consolidate`, `reindex` |
 
-**Use a flat file when:** You have one project, short memory, and don't want infrastructure.<br>
+**Use a flat file when:** You have one project, short memory, and don't want infrastructure.  
 **Use agentmemory.md when:** You have multiple projects, growing history, or want structured goal/task/decision tracking.
+
+---
+
+## Two ways to run it
+
+**Self-hosted — Free**  
+Open source. Your data stays on your server. Full control over every component. Docker Compose setup, all 22 MCP tools, CLI included, runs on any Linux box.
+
+**Managed — Coming soon**  
+Zero infrastructure. We run the server, handle updates, and keep your memory available everywhere. [Join the waitlist](https://agentmemory.md#waitlist).
+
+---
 
 ## Running Tests
 
