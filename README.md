@@ -4,7 +4,7 @@ Persistent memory for AI agents — semantic search, knowledge graph, and 22 MCP
 
 Works with any MCP-compatible agent: [Cursor](https://cursor.so), [Claude Desktop](https://claude.ai), [OpenClaw](https://github.com/openclaw/openclaw), and more.
 
-**Repository:** https://gitlab.com/tonyzorin/agentmemory  
+**Repository:** https://github.com/tonyzorin/agentmemory  
 **Website:** https://agentmemory.md
 
 ---
@@ -231,7 +231,7 @@ Restart Claude Desktop after saving.
 ### Connect — OpenClaw
 
 For OpenClaw (stdio mode), see [OPENCLAW_SETUP.md](OPENCLAW_SETUP.md).
-For automatic recall/capture, see the [agentmemory-openclaw-plugin](https://gitlab.com/tonyzorin/agentmemory-openclaw-plugin).
+For automatic recall/capture, see the [agentmemory-openclaw-plugin](https://github.com/tonyzorin/agentmemory-openclaw-plugin).
 
 ---
 
