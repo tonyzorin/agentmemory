@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 VALID_NODE_TYPES = AGEClient.ALLOWED_NODE_TYPES
 VALID_EDGE_TYPES = AGEClient.ALLOWED_EDGE_TYPES
 
+# Exclude nodes targeted by SUPERSEDES (matches recall / retrieval behavior).
+_NOT_SUPERSEDED_SQL = """
+AND NOT EXISTS (
+    SELECT 1 FROM relations r
+    WHERE r.to_id = entities.id AND r.edge_type = 'SUPERSEDES'
+)
+"""
+
+_AUTO_ABOUT_NODE_TYPES = frozenset({
+    "Memory", "Learning", "Decision", "Preference", "Workflow", "CustomerFeedback",
+})
+
 
 def _error(code: str, reason: str, service: str = "memory") -> dict[str, Any]:
     return {"error": code, "reason": reason, "service": service}
@@ -75,6 +87,62 @@ class MemoryTools:
         )
         # Share the same MemoryService instance to avoid duplicate model loads
         self.retrieval.memory = self.memory
+
+    def _auto_wire_about(
+        self,
+        entity_id: str,
+        tags: list[str] | None,
+        *,
+        node_type: str,
+        project_id: str | None = None,
+    ) -> str | None:
+        """Create ABOUT edge to project anchor when tags match PROJECT_ANCHORS_JSON."""
+        if node_type not in _AUTO_ABOUT_NODE_TYPES:
+            return None
+
+        if project_id:
+            try:
+                self.memory.relate(entity_id, project_id, "ABOUT")
+                return project_id
+            except Exception as exc:
+                logger.debug("auto_wire_about project_id failed for %s: %s", entity_id, exc)
+            return project_id
+
+        from agentmemory.config import settings
+
+        anchors = settings.project_anchors
+        if not anchors or not tags:
+            return None
+
+        self.memory.postgres._rollback_if_needed()
+        with self.memory.postgres.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1 FROM relations
+                WHERE from_id = %s AND edge_type = 'ABOUT'
+                LIMIT 1
+                """,
+                (entity_id,),
+            )
+            if cur.fetchone():
+                return None
+
+        for tag in tags:
+            anchor_id = anchors.get(tag.lower())
+            if not anchor_id:
+                continue
+            try:
+                self.memory.relate(entity_id, anchor_id, "ABOUT")
+                logger.debug(
+                    "auto_wire_about: %s --ABOUT--> %s (tag=%s)",
+                    entity_id,
+                    anchor_id,
+                    tag,
+                )
+                return anchor_id
+            except Exception as exc:
+                logger.debug("auto_wire_about failed for %s tag=%s: %s", entity_id, tag, exc)
+        return None
 
     # ------------------------------------------------------------------
     # Core memory tools
@@ -128,6 +196,13 @@ class MemoryTools:
                 importance=importance,
                 extra=extra or {},
             )
+            wired = self._auto_wire_about(
+                result["id"],
+                tags or [],
+                node_type=node_type,
+            )
+            if wired:
+                result["about_project_id"] = wired
             return result
         except Exception as e:
             logger.error("memory_store failed: %s", e)
@@ -299,6 +374,7 @@ class MemoryTools:
                            (metadata->>'access_count')::int AS access_count
                     FROM entities
                     WHERE node_type = %s
+                    {_NOT_SUPERSEDED_SQL}
                     ORDER BY {order_by} {order_dir}
                     LIMIT %s OFFSET %s
                     """,
@@ -311,6 +387,8 @@ class MemoryTools:
                            (metadata->>'importance')::float AS importance,
                            (metadata->>'access_count')::int AS access_count
                     FROM entities
+                    WHERE TRUE
+                    {_NOT_SUPERSEDED_SQL}
                     ORDER BY {order_by} {order_dir}
                     LIMIT %s OFFSET %s
                     """,
@@ -364,18 +442,40 @@ class MemoryTools:
             cur = conn.cursor()
 
             def _fetch_by_type(node_type: str, n: int) -> list[dict]:
-                cur.execute(
-                    """
-                    SELECT id, node_type, name, tags, created_at,
-                           (metadata->>'importance')::float AS importance,
-                           metadata->>'content' AS content
-                    FROM entities
-                    WHERE node_type = %s
-                    ORDER BY importance DESC NULLS LAST, created_at DESC
-                    LIMIT %s
-                    """,
-                    (node_type, n),
-                )
+                if node_type == "Project":
+                    cur.execute(
+                        f"""
+                        SELECT id, node_type, name, tags, created_at,
+                               (metadata->>'importance')::float AS importance,
+                               metadata->>'content' AS content
+                        FROM entities
+                        WHERE node_type = %s
+                        {_NOT_SUPERSEDED_SQL}
+                        ORDER BY
+                            EXISTS (
+                                SELECT 1 FROM relations r
+                                WHERE r.to_id = entities.id AND r.edge_type = 'ABOUT'
+                            ) DESC,
+                            importance DESC NULLS LAST,
+                            created_at DESC
+                        LIMIT %s
+                        """,
+                        (node_type, n),
+                    )
+                else:
+                    cur.execute(
+                        f"""
+                        SELECT id, node_type, name, tags, created_at,
+                               (metadata->>'importance')::float AS importance,
+                               metadata->>'content' AS content
+                        FROM entities
+                        WHERE node_type = %s
+                        {_NOT_SUPERSEDED_SQL}
+                        ORDER BY importance DESC NULLS LAST, created_at DESC
+                        LIMIT %s
+                        """,
+                        (node_type, n),
+                    )
                 rows = cur.fetchall()
                 col_names = [desc[0] for desc in cur.description]
                 result = []
@@ -396,12 +496,13 @@ class MemoryTools:
             recent: list[dict] = []
             if include_recent:
                 cur.execute(
-                    """
+                    f"""
                     SELECT id, node_type, name, tags, created_at,
                            (metadata->>'importance')::float AS importance,
                            metadata->>'content' AS content
                     FROM entities
                     WHERE node_type NOT IN ('Metric')
+                    {_NOT_SUPERSEDED_SQL}
                     ORDER BY created_at DESC
                     LIMIT %s
                     """,
@@ -898,6 +999,12 @@ class MemoryTools:
                     self.memory.relate(result["id"], project_id, "ABOUT")
                 except Exception:
                     pass
+            else:
+                self._auto_wire_about(
+                    result["id"],
+                    tags or [],
+                    node_type="Learning",
+                )
             return result
         except Exception as e:
             logger.error("learning_store failed: %s", e)
@@ -1119,6 +1226,12 @@ class MemoryTools:
                     self.memory.relate(result["id"], project_id, "ABOUT")
                 except Exception:
                     pass
+            else:
+                self._auto_wire_about(
+                    result["id"],
+                    tags or [],
+                    node_type="CustomerFeedback",
+                )
             if contact_id:
                 try:
                     self.memory.relate(result["id"], contact_id, "FROM")

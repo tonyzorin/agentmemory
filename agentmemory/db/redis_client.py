@@ -75,13 +75,18 @@ class MemoryRedisClient:
         """
         try:
             info_raw = self.redis.execute_command("FT.INFO", self.index_name)
-            # Parse the flat list into a dict
             info: dict = {}
-            for i in range(0, len(info_raw) - 1, 2):
-                k = info_raw[i]
-                if isinstance(k, bytes):
-                    k = k.decode()
-                info[k] = info_raw[i + 1]
+            if isinstance(info_raw, dict):
+                for k, v in info_raw.items():
+                    key = k.decode() if isinstance(k, bytes) else k
+                    info[key] = v
+            else:
+                # Parse the flat list into a dict (Redis < 8 / legacy FT.INFO)
+                for i in range(0, len(info_raw) - 1, 2):
+                    k = info_raw[i]
+                    if isinstance(k, bytes):
+                        k = k.decode()
+                    info[k] = info_raw[i + 1]
 
             needs_rebuild = False
 
