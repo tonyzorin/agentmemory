@@ -130,4 +130,38 @@ memory timeline --since 7d
 
 # Stats
 memory stats
+
+# Weekly hygiene (wire orphans, consolidate dupes, gc stale tasks)
+memory wire-orphans --dry-run
+memory wire-orphans
+memory consolidate --dry-run
+memory consolidate --threshold 0.88 --type Memory
+memory gc --dry-run
 ```
+
+## Nightly Hygiene Routine (when OpenClaw works)
+
+Until your automation agent is restored, run hygiene manually from Cursor or SSH on your deployment host.
+
+When automation is back, add a nightly cron on the host where agentmemory runs:
+
+```bash
+# /etc/cron.d/agentmemory-hygiene (example: 03:00 daily)
+0 3 * * * deploy-user cd /path/to/agentmemory && .venv/bin/memory wire-orphans >> /var/log/agentmemory-hygiene.log 2>&1
+15 3 * * * deploy-user cd /path/to/agentmemory && .venv/bin/memory consolidate --threshold 0.88 --type Memory >> /var/log/agentmemory-hygiene.log 2>&1
+30 3 * * * deploy-user cd /path/to/agentmemory && .venv/bin/memory gc --yes >> /var/log/agentmemory-hygiene.log 2>&1
+```
+
+Ensure `PROJECT_ANCHORS_JSON` is set in that host's `.env` so `wire-orphans` knows your tag → Project UUID map.
+
+**What each step does:**
+
+| Step | Command | Purpose |
+|------|---------|---------|
+| Wire orphans | `memory wire-orphans` | Link tagged facts → project anchors via `ABOUT` edges |
+| Consolidate | `memory consolidate --threshold 0.88` | Merge near-duplicate Memory nodes |
+| GC | `memory gc --yes` | Remove expired Task/Initiative nodes |
+
+**Interim (Cursor / manual):** After substantive sessions, agents should `memory_supersede` on `potential_conflict` from `memory_store`. Run `memory wire-orphans --dry-run` weekly to catch untagged orphans.
+
+**OpenClaw agent prompt (future):** Split coarse nodes (>2 sentences), wire `ABOUT` for new facts with project tags, supersede expired deadlines and contradictions.

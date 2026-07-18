@@ -1000,6 +1000,124 @@ class MemoryService:
         }
 
     # ------------------------------------------------------------------
+    # Wire orphans — tag → project ABOUT edges
+    # ------------------------------------------------------------------
+
+    WIRE_ORPHAN_NODE_TYPES = {
+        "Memory", "Learning", "Decision", "Preference", "Workflow", "CustomerFeedback",
+    }
+
+    def wire_orphans(
+        self,
+        *,
+        dry_run: bool = False,
+        limit: int = 500,
+        project_anchors: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create ABOUT edges from tagged facts to their project anchors.
+
+        Finds nodes that have project tags but no outgoing ABOUT edge, maps the
+        first matching tag to a canonical Project anchor, and relates them.
+
+        Project anchors come from ``project_anchors`` or ``PROJECT_ANCHORS_JSON``
+        in settings — never hardcoded in source.
+        """
+        if project_anchors is None:
+            from agentmemory.config import settings
+
+            project_anchors = settings.project_anchors
+
+        anchors = {k.lower(): v for k, v in project_anchors.items()}
+        if not anchors:
+            return {
+                "scanned": 0,
+                "wired": 0,
+                "skipped": 0,
+                "wired_nodes": [],
+                "skipped_nodes": [],
+                "error": (
+                    "No project anchors configured. Set PROJECT_ANCHORS_JSON "
+                    "or pass project_anchors."
+                ),
+            }
+
+        self.postgres._rollback_if_needed()
+        with self.postgres.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT e.id, e.name, e.node_type, e.tags
+                FROM entities e
+                WHERE e.node_type = ANY(%s)
+                  AND array_length(e.tags, 1) > 0
+                  AND NOT EXISTS (
+                    SELECT 1 FROM relations r
+                    WHERE r.from_id = e.id AND r.edge_type = 'ABOUT'
+                  )
+                ORDER BY e.created_at DESC
+                LIMIT %s
+                """,
+                (list(self.WIRE_ORPHAN_NODE_TYPES), limit),
+            )
+            orphans = [dict(r) for r in cur.fetchall()]
+
+        wired: list[dict[str, str]] = []
+        skipped: list[dict[str, str]] = []
+
+        for entity in orphans:
+            entity_id = entity["id"]
+            tags = entity.get("tags") or []
+            project_id: str | None = None
+            matched_tag: str | None = None
+
+            for tag in tags:
+                key = tag.lower()
+                if key in anchors:
+                    project_id = anchors[key]
+                    matched_tag = tag
+                    break
+
+            if not project_id:
+                skipped.append({
+                    "id": entity_id,
+                    "name": (entity.get("name") or "")[:60],
+                    "reason": "no matching project anchor for tags",
+                })
+                continue
+
+            if dry_run:
+                wired.append({
+                    "id": entity_id,
+                    "name": (entity.get("name") or "")[:60],
+                    "tag": matched_tag or "",
+                    "project_id": project_id,
+                })
+                continue
+
+            try:
+                self.relate(entity_id, project_id, "ABOUT")
+                wired.append({
+                    "id": entity_id,
+                    "name": (entity.get("name") or "")[:60],
+                    "tag": matched_tag or "",
+                    "project_id": project_id,
+                })
+            except Exception as e:
+                skipped.append({
+                    "id": entity_id,
+                    "name": (entity.get("name") or "")[:60],
+                    "reason": str(e),
+                })
+
+        return {
+            "scanned": len(orphans),
+            "wired": len(wired),
+            "skipped": len(skipped),
+            "wired_nodes": wired,
+            "skipped_nodes": skipped[:20],
+        }
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 

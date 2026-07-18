@@ -36,6 +36,7 @@ services:
   app:
     build: .
     container_name: agentmemory-app
+    mem_limit: 4g
     environment:
       DATABASE_URL: postgresql://openclaw:openclaw@postgres:5432/openclaw_memory
       REDIS_URL: redis://redis:6379/0
@@ -45,17 +46,18 @@ services:
       MCP_PORT: "8081"
       LOG_LEVEL: INFO
     ports:
-      - "8081:8081"
+      # 59999 on host — 8081 often taken by reverse proxy (e.g. Caddy)
+      - "59999:8081"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/mcp')\" 2>/dev/null || exit 0"]
-      interval: 10s
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1', 8081), 2); s.close()\""]
+      interval: 30s
       timeout: 5s
-      retries: 12
+      retries: 3
       start_period: 60s
     restart: unless-stopped
     # Override to run CLI or tests:

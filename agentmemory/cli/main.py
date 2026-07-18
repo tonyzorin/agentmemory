@@ -1903,5 +1903,84 @@ def tag_backfill(dry_run, limit):
         console.print("[yellow]Dry run — no changes made.[/yellow]")
 
 
+# ---------------------------------------------------------------------------
+# wire-orphans command
+# ---------------------------------------------------------------------------
+
+
+@cli.command("wire-orphans")
+@click.option("--dry-run", is_flag=True, help="Show what would be wired without writing")
+@click.option("--limit", default=500, type=int, help="Max orphan nodes to scan")
+@click.option(
+    "--anchors-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=str),
+    help="JSON file mapping tags to Project entity UUIDs (overrides env)",
+)
+def wire_orphans_cmd(dry_run, limit, anchors_file):
+    """Create ABOUT edges from tagged facts to canonical project anchors.
+
+    Finds Memory/Learning/Decision/etc. nodes that have project tags but no
+    outgoing ABOUT edge, and links them to the matching Project anchor.
+
+    Configure anchors via PROJECT_ANCHORS_JSON in .env or --anchors-file.
+    Run after tag-backfill or bulk imports to improve graph-scoped recall.
+    """
+    from agentmemory.config import load_project_anchors_file, settings
+    from agentmemory.core.memory import MemoryService
+
+    anchors = dict(settings.project_anchors)
+    if anchors_file:
+        anchors.update(load_project_anchors_file(anchors_file))
+
+    if not anchors:
+        console.print("[red]No project anchors configured.[/red]")
+        console.print(
+            "Set PROJECT_ANCHORS_JSON in .env or pass --anchors-file anchors.json"
+        )
+        sys.exit(1)
+
+    svc = MemoryService(
+        database_url=settings.database_url,
+        redis_url=settings.redis_url,
+        graph_name=settings.graph_name,
+        embedding_model=settings.embedding_model,
+        embedding_dim=settings.embedding_dim,
+    )
+
+    result = svc.wire_orphans(dry_run=dry_run, limit=limit, project_anchors=anchors)
+    svc.close()
+
+    if result.get("error"):
+        console.print(f"[red]{result['error']}[/red]")
+        sys.exit(1)
+
+    console.print(
+        f"[dim]Scanned {result['scanned']} orphan(s) — "
+        f"{'would wire' if dry_run else 'wired'} {result['wired']}, "
+        f"skipped {result['skipped']}[/dim]"
+    )
+
+    if result["wired_nodes"]:
+        table = Table(title="Wired nodes", show_lines=True)
+        table.add_column("Tag", style="magenta", width=14)
+        table.add_column("Name", style="cyan", max_width=40)
+        table.add_column("ID", style="dim", width=36)
+        for n in result["wired_nodes"][:30]:
+            table.add_row(n.get("tag", ""), n.get("name", "")[:40], n["id"])
+        console.print(table)
+        if len(result["wired_nodes"]) > 30:
+            console.print(f"[dim]... and {len(result['wired_nodes']) - 30} more[/dim]")
+
+    if result["skipped_nodes"]:
+        console.print(f"[yellow]Skipped {result['skipped']} (showing up to 20):[/yellow]")
+        for n in result["skipped_nodes"]:
+            console.print(f"  [dim]{n['id'][:8]}...[/dim] {n.get('reason', '')}")
+
+    if dry_run:
+        console.print("[yellow]Dry run — no changes made.[/yellow]")
+    elif result["wired"]:
+        console.print(f"[green]✓[/green] Created {result['wired']} ABOUT edge(s)")
+
+
 if __name__ == "__main__":
     cli()

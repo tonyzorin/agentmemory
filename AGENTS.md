@@ -421,7 +421,7 @@ result = memory_store("John prefers Rust for systems programming", node_type="Pr
 When this happens, decide whether the new memory supersedes the old one:
 
 ```python
-# If yes — the old memory is outdated/replaced:
+# If yes — the old memory is outdated/replaced (do this SAME TURN, not later):
 memory_supersede(new_id=result["id"], old_id=result["potential_conflict"]["id"])
 # The old node remains in the graph (audit trail) but is excluded from future searches.
 
@@ -429,21 +429,43 @@ memory_supersede(new_id=result["id"], old_id=result["potential_conflict"]["id"])
 # Do nothing. Both nodes will be in search results.
 ```
 
+**Agents must not defer supersede** — leaving `potential_conflict` unresolved causes contradictory facts in recall top-10.
+
 **When to supersede:** Preferences, decisions, or facts that have changed over time.
 **When to keep both:** Related but distinct memories that don't contradict each other.
 
 ## Corpus Maintenance
 
-As the corpus grows over weeks/months, run these commands periodically:
+As the corpus grows over weeks/months, run these commands periodically (weekly recommended):
 
 ```bash
-# Remove near-duplicate memories (weekly or monthly)
-memory consolidate --dry-run     # preview first
-memory consolidate --no-dry-run  # then merge
+# 1. Wire tagged orphans → project anchors (ABOUT edges)
+memory wire-orphans --dry-run          # preview tag→project links
+memory wire-orphans                    # apply (uses PROJECT_ANCHORS_JSON from .env)
 
-# Remove expired Task/Initiative nodes
+# Or pass a local anchors file (not committed to git):
+memory wire-orphans --anchors-file ./anchors.json --dry-run
+
+# 2. Remove near-duplicate memories
+memory consolidate --dry-run           # preview merges (threshold 0.88)
+memory consolidate --threshold 0.88 --type Memory
+
+# 3. Remove expired Task/Initiative nodes
 memory gc --dry-run
 memory gc --yes
 ```
 
+**`wire-orphans`** finds Memory/Learning/Decision/etc. nodes that have a known project tag but no outgoing `ABOUT` edge to the canonical project anchor, then creates the edge. Configure the tag → Project UUID map via `PROJECT_ANCHORS_JSON` in `.env` (see `.env.example`) or `--anchors-file`. Example: `{"my-app":"<project-entity-uuid>"}`.
+
+**Full weekly maintenance sequence:**
+```bash
+memory wire-orphans --dry-run
+memory wire-orphans
+memory consolidate --dry-run
+memory consolidate --threshold 0.88 --type Memory
+memory gc --dry-run
+```
+
 Consolidation merges semantically similar nodes (default threshold: cosine similarity ≥ 0.85) into a single canonical node, preserving the best content and all graph edges. It never runs automatically — you control when it happens.
+
+**From Cursor (remote MCP):** hygiene batches can also run via MCP `memory_relate` + `memory_supersede` when the CLI is not deployed yet.
