@@ -59,7 +59,7 @@ tailscale ip -4  # note this IP
 tailscale serve --bg --tcp 8081 tcp://localhost:8081
 ```
 
-Port 8081 must not be open to the public internet — it has no authentication. `tailscale serve` binds port 8081 on your Tailscale IP so only devices in your tailnet can reach it — no firewall rules needed.
+Port 8081 must not be open to the public internet without **Bearer token auth** enabled. For Tailscale-only access, `tailscale serve` binds port 8081 on your Tailscale IP so only devices in your tailnet can reach it — no firewall rules needed. For public HTTPS exposure, see [HTTP authentication](#http-authentication).
 
 ### 3. Add to your agent
 
@@ -170,6 +170,84 @@ memory stats
 
 ---
 
+## HTTP authentication
+
+For public internet exposure (HTTPS via Caddy or Cloudflare), enable Bearer token auth on the MCP HTTP/SSE endpoint. The LLM never sees the token — your MCP client sends it in the `Authorization` header.
+
+### 1. Generate a token (on the server)
+
+```bash
+docker compose run --rm app mem token create
+```
+
+Copy the raw token immediately. Add the **hash** to your server `.env`:
+
+```bash
+AGENTMEMORY_AUTH_REQUIRED=true
+AGENTMEMORY_TOKEN_HASHES=<sha256-hex-from-mem-token-create>
+```
+
+Restart the app: `docker compose up -d --build app`
+
+### 2. Configure clients
+
+**Cursor** (`~/.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "agentmemory": {
+      "url": "https://mem.yourdomain.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:AGENTMEMORY_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Set `AGENTMEMORY_TOKEN` in your shell profile (never commit the raw token).
+
+**Claude Desktop** (via `mcp-remote`):
+
+```json
+{
+  "mcpServers": {
+    "agentmemory": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "https://mem.yourdomain.com/mcp",
+        "--header", "Authorization:${AUTH_HEADER}"
+      ],
+      "env": {
+        "AUTH_HEADER": "Bearer am_..."
+      }
+    }
+  }
+}
+```
+
+Use `env` for the token value to avoid Windows/Cursor space-mangling bugs in `args`.
+
+**Claude Code:**
+
+```bash
+claude mcp add --transport http agentmemory https://mem.yourdomain.com/mcp \
+  --header "Authorization: Bearer $AGENTMEMORY_TOKEN"
+```
+
+**OpenClaw / stdio:** unchanged — local process, no Bearer auth.
+
+### Deploy shape
+
+1. App listens on `127.0.0.1:8081` (or your port)
+2. Caddy/Cloudflare terminates TLS and proxies to localhost
+3. `AGENTMEMORY_AUTH_REQUIRED=true` + token hashes in `.env`
+4. Never expose the raw Docker port publicly without TLS **and** auth
+
+---
+
 ## Connecting Agents
 
 ### Connect — Cursor IDE
@@ -186,7 +264,7 @@ Cursor supports the modern Streamable HTTP transport natively. In `~/.cursor/mcp
 }
 ```
 
-Replace `100.x.x.x` with your server's Tailscale IP.
+Replace `100.x.x.x` with your server's Tailscale IP. If [HTTP authentication](#http-authentication) is enabled, add the `headers` block with `Authorization: Bearer ${env:AGENTMEMORY_TOKEN}`.
 
 ---
 

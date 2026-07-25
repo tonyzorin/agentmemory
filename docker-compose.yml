@@ -46,6 +46,9 @@ services:
       MCP_PORT: "8006"
       LOG_LEVEL: INFO
       RERANKER_ENABLED: "true"
+      # HTTP auth — set in .env (see `mem token create` and README)
+      # AGENTMEMORY_AUTH_REQUIRED: "true"
+      # AGENTMEMORY_TOKEN_HASHES: "<sha256-hex>"
     ports:
       - "127.0.0.1:8006:8006"
     depends_on:

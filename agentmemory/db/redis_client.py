@@ -36,6 +36,30 @@ def _bytes_to_floats(data: bytes, dim: int) -> list[float]:
     return list(struct.unpack(f"{dim}f", data))
 
 
+def _decode(value: Any) -> Any:
+    """Decode Redis bytes to str; leave other types unchanged."""
+    if isinstance(value, bytes):
+        return value.decode()
+    return value
+
+
+def _attr_to_dict(attr: Any) -> dict[str, Any]:
+    """
+    Normalize one FT.INFO attribute descriptor to a str-keyed dict.
+
+    Redis 7 / RESP2: flat list [identifier, $.id, attribute, id, type, TAG, ...]
+    Redis 8 / RESP3: dict {b'identifier': b'$.id', b'attribute': b'id', ...}
+    """
+    if isinstance(attr, dict):
+        return {_decode(k): _decode(v) for k, v in attr.items()}
+    if isinstance(attr, (list, tuple)):
+        out: dict[str, Any] = {}
+        for i in range(0, len(attr) - 1, 2):
+            out[_decode(attr[i])] = _decode(attr[i + 1])
+        return out
+    return {}
+
+
 class MemoryRedisClient:
     """
     Redis client for the agentmemory.md memory system.
@@ -124,23 +148,25 @@ class MemoryRedisClient:
             attrs = info.get("attributes", [])
             if not attrs:
                 return None
-            # attributes is a list of attribute descriptors (each is a list)
             for attr in attrs:
-                if not isinstance(attr, (list, tuple)):
+                attr_dict = _attr_to_dict(attr)
+                if str(attr_dict.get("type", "")).upper() != "VECTOR":
                     continue
-                attr_dict: dict = {}
-                for i in range(0, len(attr) - 1, 2):
-                    k = attr[i]
-                    v = attr[i + 1]
-                    if isinstance(k, bytes):
-                        k = k.decode()
-                    if isinstance(v, bytes):
-                        v = v.decode()
-                    attr_dict[k] = v
-                if attr_dict.get("type", "").upper() == "VECTOR":
-                    dim = attr_dict.get("dim") or attr_dict.get("DIM")
-                    if dim is not None:
-                        return int(dim)
+                # RESP3 may nest vector params under different keys
+                dim = attr_dict.get("dim") or attr_dict.get("DIM")
+                if dim is None:
+                    # Some builds expose vector options as nested list/dict
+                    for key in ("vector_args", "VECTOR"):
+                        nested = attr_dict.get(key)
+                        if isinstance(nested, dict):
+                            dim = nested.get("dim") or nested.get("DIM")
+                        elif isinstance(nested, (list, tuple)):
+                            nested_dict = _attr_to_dict(nested)
+                            dim = nested_dict.get("dim") or nested_dict.get("DIM")
+                        if dim is not None:
+                            break
+                if dim is not None:
+                    return int(dim)
         except Exception:
             pass
         return None
@@ -150,13 +176,14 @@ class MemoryRedisClient:
         try:
             attrs = info.get("attributes", [])
             for attr in attrs:
-                if not isinstance(attr, (list, tuple)):
-                    continue
-                for item in attr:
-                    if isinstance(item, bytes) and item.decode() == field_name:
-                        return True
-                    if isinstance(item, str) and item == field_name:
-                        return True
+                attr_dict = _attr_to_dict(attr)
+                if attr_dict.get("attribute") == field_name:
+                    return True
+                # Legacy list walk (also covers odd RESP2 shapes)
+                if isinstance(attr, (list, tuple)):
+                    for item in attr:
+                        if _decode(item) == field_name:
+                            return True
         except Exception:
             pass
         return False
@@ -267,51 +294,79 @@ class MemoryRedisClient:
     def _parse_knn_results(
         self, result: Any, min_score: float = 0.0
     ) -> list[dict[str, Any]]:
-        """Parse FT.SEARCH KNN results into a list of dicts."""
-        if not result or result[0] == 0:
+        """Parse FT.SEARCH KNN results into a list of dicts.
+
+        Supports:
+        - RESP3 (Redis 8 / redis-py default): dict with ``results`` list of
+          ``{id, extra_attributes}`` maps
+        - RESP2 legacy: flat list ``[count, key, [field, value, ...], ...]``
+        """
+        if not result:
+            return []
+
+        # RESP3 map form
+        if isinstance(result, dict):
+            raw_results = result.get(b"results", result.get("results", [])) or []
+            docs: list[dict[str, Any]] = []
+            for item in raw_results:
+                if not isinstance(item, dict):
+                    continue
+                doc_key = _decode(item.get(b"id", item.get("id", "")))
+                extras = item.get(b"extra_attributes", item.get("extra_attributes", {})) or {}
+                if not isinstance(extras, dict):
+                    continue
+                fields = {_decode(k): _decode(v) for k, v in extras.items()}
+                doc = self._knn_doc_from_fields(doc_key, fields, min_score)
+                if doc is not None:
+                    docs.append(doc)
+            return docs
+
+        # RESP2 list form
+        if result[0] == 0:
             return []
 
         docs = []
         i = 1
         while i < len(result):
-            doc_key = result[i]
-            if isinstance(doc_key, bytes):
-                doc_key = doc_key.decode()
-
+            doc_key = _decode(result[i])
             fields_raw = result[i + 1] if i + 1 < len(result) else []
-            doc: dict[str, Any] = {"_key": doc_key}
-
+            fields: dict[str, Any] = {}
             j = 0
             while j < len(fields_raw):
-                fname = fields_raw[j]
-                fval = fields_raw[j + 1] if j + 1 < len(fields_raw) else None
-                if isinstance(fname, bytes):
-                    fname = fname.decode()
-                if isinstance(fval, bytes):
-                    fval = fval.decode()
-
-                if fname == "score":
-                    try:
-                        distance = float(fval)
-                        doc["similarity"] = max(0.0, 1.0 - distance)
-                    except (ValueError, TypeError):
-                        doc["similarity"] = 0.0
-                elif fname == "$.id":
-                    doc["id"] = fval
-                else:
-                    doc[fname] = fval
+                fname = _decode(fields_raw[j])
+                fval = _decode(fields_raw[j + 1]) if j + 1 < len(fields_raw) else None
+                fields[fname] = fval
                 j += 2
-
-            similarity = doc.get("similarity", 0.0)
-            if similarity >= min_score:
-                # Ensure id is set
-                if "id" not in doc and "$.id" not in doc:
-                    # Extract from key
-                    doc["id"] = doc_key.split(":")[-1]
+            doc = self._knn_doc_from_fields(doc_key, fields, min_score)
+            if doc is not None:
                 docs.append(doc)
             i += 2
 
         return docs
+
+    def _knn_doc_from_fields(
+        self, doc_key: str, fields: dict[str, Any], min_score: float
+    ) -> dict[str, Any] | None:
+        """Build one KNN result dict from RETURN field map; None if below min_score."""
+        doc: dict[str, Any] = {"_key": doc_key}
+        for fname, fval in fields.items():
+            if fname == "score":
+                try:
+                    distance = float(fval)
+                    doc["similarity"] = max(0.0, 1.0 - distance)
+                except (ValueError, TypeError):
+                    doc["similarity"] = 0.0
+            elif fname == "$.id":
+                doc["id"] = fval
+            else:
+                doc[fname] = fval
+
+        similarity = doc.get("similarity", 0.0)
+        if similarity < min_score:
+            return None
+        if "id" not in doc:
+            doc["id"] = doc_key.split(":")[-1] if doc_key else ""
+        return doc
 
     # ------------------------------------------------------------------
     # Hybrid search (FT.HYBRID — BM25 + vector, RRF fusion)
@@ -379,29 +434,30 @@ class MemoryRedisClient:
         """
         Parse FT.HYBRID results.
 
-        Redis 8.6 returns:
-          [b'total_results', N, b'results',
-           [[b'hybrid_score', '0.032...', b'$', json_str], ...],
-           b'warnings', [...]]
+        Redis 8.6 RESP3 returns a map::
+          {b'total_results': N, b'results': [{b'hybrid_score': ..., b'$': json}, ...]}
+
+        Legacy RESP2 returns a flat list::
+          [b'total_results', N, b'results', [[b'hybrid_score', ..., b'$', json], ...], ...]
 
         hybrid_score is the raw RRF value (≈ 1/61 ≈ 0.0164 per contributing rank-1 list).
-        We normalise it to [0, 1] using the theoretical maximum for `limit` candidates:
-          max_rrf = limit * (1 / (60 + 1))   (all lists rank this doc #1)
+        We normalise it to [0, 1] using the theoretical maximum for two lists:
+          max_rrf = 2 / (60 + 1)   (both SEARCH and VSIM rank this doc #1)
         """
         if not result:
             return []
 
         import json as _json
 
-        # Convert flat top-level list to dict
-        result_dict: dict = {}
-        for i in range(0, len(result) - 1, 2):
-            k = result[i]
-            if isinstance(k, bytes):
-                k = k.decode()
-            result_dict[k] = result[i + 1]
+        if isinstance(result, dict):
+            result_dict = {_decode(k): v for k, v in result.items()}
+        else:
+            # Convert flat top-level list to dict
+            result_dict = {}
+            for i in range(0, len(result) - 1, 2):
+                result_dict[_decode(result[i])] = result[i + 1]
 
-        raw_docs = result_dict.get("results", [])
+        raw_docs = result_dict.get("results", []) or []
         # RRF max: both SEARCH and VSIM rank the doc #1 → 2 * 1/(60+1)
         RRF_MAX = 2.0 / 61.0
 
@@ -409,15 +465,12 @@ class MemoryRedisClient:
         for doc_fields in raw_docs:
             if not doc_fields:
                 continue
-            doc_dict: dict = {}
-            for i in range(0, len(doc_fields) - 1, 2):
-                fname = doc_fields[i]
-                fval = doc_fields[i + 1]
-                if isinstance(fname, bytes):
-                    fname = fname.decode()
-                if isinstance(fval, bytes):
-                    fval = fval.decode()
-                doc_dict[fname] = fval
+            if isinstance(doc_fields, dict):
+                doc_dict = {_decode(k): _decode(v) for k, v in doc_fields.items()}
+            else:
+                doc_dict = {}
+                for i in range(0, len(doc_fields) - 1, 2):
+                    doc_dict[_decode(doc_fields[i])] = _decode(doc_fields[i + 1])
 
             json_str = doc_dict.get("$")
             if not json_str:
@@ -472,13 +525,12 @@ class MemoryRedisClient:
         """Return basic stats about the memory index."""
         try:
             info = self.redis.execute_command("FT.INFO", self.index_name)
-            info_dict = {}
-            for i in range(0, len(info) - 1, 2):
-                k = info[i]
-                v = info[i + 1]
-                if isinstance(k, bytes):
-                    k = k.decode()
-                info_dict[k] = v
+            if isinstance(info, dict):
+                info_dict = {_decode(k): _decode(v) for k, v in info.items()}
+            else:
+                info_dict = {}
+                for i in range(0, len(info) - 1, 2):
+                    info_dict[_decode(info[i])] = _decode(info[i + 1])
 
             num_docs = info_dict.get("num_docs", 0)
             if isinstance(num_docs, bytes):

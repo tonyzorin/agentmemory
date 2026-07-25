@@ -1982,5 +1982,41 @@ def wire_orphans_cmd(dry_run, limit, anchors_file):
         console.print(f"[green]✓[/green] Created {result['wired']} ABOUT edge(s)")
 
 
+# ---------------------------------------------------------------------------
+# token — API key management for HTTP auth
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def token():
+    """Manage Bearer tokens for MCP HTTP/SSE auth."""
+    pass
+
+
+@token.command("create")
+def token_create():
+    """Generate a new API token and its hash for AGENTMEMORY_TOKEN_HASHES.
+
+    Prints the raw token once (save it — it cannot be recovered) and the hash
+    to add to your server .env. Use in Cursor/Claude as Authorization: Bearer <token>.
+    """
+    from agentmemory.config import settings
+    from agentmemory.mcp.auth import generate_api_token, hash_token
+
+    raw = generate_api_token()
+    digest = hash_token(raw, settings.agentmemory_token_pepper)
+
+    console.print(Panel.fit(
+        "[bold]New agentmemory API token[/bold]\n\n"
+        "Add the hash to your server [cyan].env[/cyan]:\n"
+        f"  AGENTMEMORY_AUTH_REQUIRED=true\n"
+        f"  AGENTMEMORY_TOKEN_HASHES={digest}\n\n"
+        "Add the raw token to your MCP client (never commit this):\n"
+        f"  AGENTMEMORY_TOKEN={raw}\n\n"
+        "[yellow]The raw token is shown once. Copy it now.[/yellow]",
+        title="mem token create",
+    ))
+
+
 if __name__ == "__main__":
     cli()

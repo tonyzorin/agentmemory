@@ -69,9 +69,22 @@ class Settings(BaseSettings):
     # Example: PROJECT_ANCHORS_JSON={"my-app":"00000000-0000-0000-0000-000000000001"}
     project_anchors_json: str = "{}"
 
+    # MCP HTTP/SSE Bearer auth (stdio transport is never authenticated)
+    # AGENTMEMORY_TOKEN_HASHES: comma-separated SHA-256 hex digests (from `mem token create`)
+    agentmemory_auth_required: bool = False
+    agentmemory_token_hashes: str = ""
+    agentmemory_token_pepper: str = ""
+
     @property
     def project_anchors(self) -> dict[str, str]:
         return parse_project_anchors(self.project_anchors_json)
+
+    @property
+    def http_auth_enabled(self) -> bool:
+        """True when HTTP/SSE should require a valid Bearer token."""
+        return self.agentmemory_auth_required or bool(
+            self.agentmemory_token_hashes.strip()
+        )
 
 
 # Singleton

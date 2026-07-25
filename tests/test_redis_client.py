@@ -73,14 +73,12 @@ class TestIndexCreation:
     def test_index_has_vector_field(self, client):
         """Index must have an embedding vector field."""
         info = client.redis.execute_command("FT.INFO", f"{TEST_REDIS_PREFIX}memory_idx")
-        # FT.INFO returns a flat list of key-value pairs
-        info_dict = dict(zip(info[::2], info[1::2]))
-        fields_raw = info_dict.get(b"attributes", info_dict.get("attributes", []))
-        field_names = []
-        for field in fields_raw:
-            if isinstance(field, list):
-                field_names.append(field[1] if len(field) > 1 else "")
-        assert any(b"embedding" in str(f).encode() or "embedding" in str(f) for f in field_names)
+        if isinstance(info, dict):
+            fields_raw = info.get(b"attributes", info.get("attributes", []))
+        else:
+            info_dict = dict(zip(info[::2], info[1::2]))
+            fields_raw = info_dict.get(b"attributes", info_dict.get("attributes", []))
+        assert any("embedding" in str(f) for f in fields_raw)
 
     def test_index_creation_is_idempotent(self, client):
         """Creating the client twice should not raise (index already exists)."""
@@ -270,6 +268,93 @@ class TestTagFiltering:
         ids = [r["id"] for r in results]
         assert "test-tag-1" in ids
         assert "test-tag-2" not in ids
+
+
+# ---------------------------------------------------------------------------
+# RESP3 result parsing (unit — no Redis round-trip)
+# ---------------------------------------------------------------------------
+
+
+class TestResp3Parsing:
+    """Redis 8 + redis-py return FT.* replies as maps; parsers must not KeyError.
+
+    These are pure unit tests (no Redis connection) — they instantiate the
+    client without calling ``__init__``.
+    """
+
+    @staticmethod
+    def _bare_client() -> MemoryRedisClient:
+        return object.__new__(MemoryRedisClient)
+
+    def test_parse_knn_results_resp3_dict(self):
+        client = self._bare_client()
+        result = {
+            b"total_results": 1,
+            b"results": [
+                {
+                    b"id": b"memory:abc-1",
+                    b"extra_attributes": {
+                        b"score": b"0.05",
+                        b"id": b"abc-1",
+                        b"content": b"hello feedback1",
+                        b"node_type": b"Memory",
+                        b"$.id": b"abc-1",
+                    },
+                    b"values": [],
+                }
+            ],
+            b"warning": [],
+        }
+        docs = client._parse_knn_results(result, min_score=0.0)
+        assert len(docs) == 1
+        assert docs[0]["id"] == "abc-1"
+        assert docs[0]["content"] == "hello feedback1"
+        assert abs(docs[0]["similarity"] - 0.95) < 1e-6
+
+    def test_parse_hybrid_results_resp3_dict(self):
+        import json
+
+        client = self._bare_client()
+        payload = {
+            "id": "hyb-1",
+            "content": "PostgreSQL feedback1 note",
+            "node_type": "Memory",
+            "tags": ["feedback1"],
+        }
+        result = {
+            b"total_results": 1,
+            b"results": [
+                {
+                    b"hybrid_score": b"0.032786885246",  # ~2/61
+                    b"$": json.dumps(payload).encode(),
+                }
+            ],
+            b"warnings": [],
+        }
+        docs = client._parse_hybrid_results(result)
+        assert len(docs) == 1
+        assert docs[0]["id"] == "hyb-1"
+        assert docs[0]["similarity"] == 1.0  # clamped to RRF max
+
+    def test_index_has_field_resp3_attr_dicts(self):
+        client = self._bare_client()
+        info = {
+            "attributes": [
+                {
+                    b"identifier": b"$.node_type",
+                    b"attribute": b"node_type",
+                    b"type": b"TAG",
+                },
+                {
+                    b"identifier": b"$.embedding",
+                    b"attribute": b"embedding",
+                    b"type": b"VECTOR",
+                    b"dim": 768,
+                },
+            ]
+        }
+        assert client._index_has_field(info, "node_type") is True
+        assert client._extract_index_dim(info) == 768
 
 
 # ---------------------------------------------------------------------------

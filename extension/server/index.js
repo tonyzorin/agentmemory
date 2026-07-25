@@ -4,6 +4,7 @@
  * remote agentmemory HTTP server via mcp-remote.
  *
  * AGENTMEMORY_URL is injected by the manifest from user_config.tailscale_ip.
+ * Optional: AGENTMEMORY_TOKEN or AGENTMEMORY_AUTH_HEADER for Bearer auth.
  */
 
 const { spawn } = require("child_process");
@@ -16,14 +17,23 @@ if (!url) {
   process.exit(1);
 }
 
-const child = spawn(
-  "npx",
-  ["--yes", "mcp-remote@latest", url, "--allow-http"],
-  {
-    stdio: "inherit",
-    env: { ...process.env },
-  }
-);
+const args = ["--yes", "mcp-remote@latest", url, "--allow-http"];
+
+// Bearer auth: prefer full header in env (avoids space-mangling on Windows)
+const authHeader =
+  process.env.AGENTMEMORY_AUTH_HEADER ||
+  (process.env.AGENTMEMORY_TOKEN
+    ? `Bearer ${process.env.AGENTMEMORY_TOKEN}`
+    : null);
+
+if (authHeader) {
+  args.push("--header", `Authorization:${authHeader}`);
+}
+
+const child = spawn("npx", args, {
+  stdio: "inherit",
+  env: { ...process.env },
+});
 
 child.on("exit", (code) => process.exit(code ?? 0));
 child.on("error", (err) => {

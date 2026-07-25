@@ -20,11 +20,13 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from typing import Any
 
 import fastmcp
 
 from agentmemory.config import settings
+from agentmemory.mcp.auth import build_auth_verifier
 from agentmemory.mcp.tools import MemoryTools
 
 logger = logging.getLogger(__name__)
@@ -631,6 +633,27 @@ def main() -> None:
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
+
+    auth = None
+    if args.transport in ("sse", "streamable-http"):
+        if settings.http_auth_enabled:
+            try:
+                auth = build_auth_verifier(
+                    auth_required=settings.agentmemory_auth_required,
+                    token_hashes_raw=settings.agentmemory_token_hashes,
+                    pepper=settings.agentmemory_token_pepper,
+                )
+            except ValueError as exc:
+                logger.error("%s", exc)
+                sys.exit(1)
+            if auth is not None:
+                mcp.auth = auth
+                logger.info("HTTP auth enabled (%d token hash(es))", len(auth._token_hashes))
+        else:
+            logger.warning(
+                "HTTP transport without auth — only safe on localhost or Tailscale. "
+                "Set AGENTMEMORY_AUTH_REQUIRED=true and AGENTMEMORY_TOKEN_HASHES for public exposure."
+            )
 
     if args.transport == "sse":
         logger.info("Starting MCP server in SSE mode on %s:%d", args.host, args.port)
