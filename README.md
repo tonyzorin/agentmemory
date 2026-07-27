@@ -83,10 +83,12 @@ Copy the rules file for your agent so it knows *when* to fetch and store memorie
 
 | Agent | File | Where to put it |
 |-------|------|-----------------|
+| All (reference) | [`rules/CORE.md`](rules/CORE.md) | Shared policy — adapters below include this |
 | Cursor | [`rules/cursor.mdc`](rules/cursor.mdc) | `.cursor/rules/agentmemory.mdc` in your project |
 | Claude Desktop | [`rules/CLAUDE.md`](rules/CLAUDE.md) | Project → Set custom instructions → paste contents |
 | Claude Code | [`rules/CLAUDE.md`](rules/CLAUDE.md) | Project root as `CLAUDE.md` |
 | ChatGPT | [`rules/chatgpt-instructions.md`](rules/chatgpt-instructions.md) | Settings → Personalization → Custom Instructions |
+| Grok | [`rules/grok-instructions.md`](rules/grok-instructions.md) | Custom instructions + MCP connector (see OAuth in README) |
 
 > Without rules, the agent only uses memory when you explicitly ask. With rules, it fetches context automatically at the start of each session and stores decisions as they happen.
 
@@ -239,12 +241,62 @@ claude mcp add --transport http agentmemory https://mem.yourdomain.com/mcp \
 
 **OpenClaw / stdio:** unchanged — local process, no Bearer auth.
 
+### OAuth (browser MCP clients)
+
+Some browser-based MCP clients cannot paste a static Bearer token — they need OAuth with PKCE. agentmemory exposes `/authorize` and `/token` **without** `/.well-known` discovery so Cursor static Bearer headers keep working on the same host.
+
+**1. Enable on the server**
+
+Google Sign-In (recommended) — set in `.env`:
+
+```bash
+AGENTMEMORY_OAUTH_ENABLED=true
+AGENTMEMORY_GOOGLE_CLIENT_ID=<from Google Cloud Console>
+AGENTMEMORY_GOOGLE_CLIENT_SECRET=<from Google Cloud Console>
+AGENTMEMORY_OAUTH_ALLOWED_EMAIL=tonyzorin@gmail.com
+AGENTMEMORY_OAUTH_CLIENT_ID=agentmemory
+AGENTMEMORY_PUBLIC_BASE_URL=https://mem.agentmemory.md
+```
+
+Add authorized redirect URI in Google Cloud Console:
+
+`https://mem.agentmemory.md/oauth/google/callback`
+
+Or password consent (fallback):
+
+```bash
+mem oauth password-hash   # prints AGENTMEMORY_OAUTH_PASSWORD_HASH
+```
+
+Proxy `/authorize`, `/token`, and `/oauth/google/*` in Caddy. Restart the app.
+
+**2. Custom connector** (paste these in the client's OAuth form)
+
+| Field | Value |
+|---|---|
+| Server URL | `https://mem.agentmemory.md/mcp` |
+| Client ID | `agentmemory` |
+| Client Secret | *(leave blank)* |
+| Authorization Endpoint | `https://mem.agentmemory.md/authorize` |
+| Token Endpoint | `https://mem.agentmemory.md/token` |
+| Scopes | `memory:full` |
+| Token Auth Method | `none` (PKCE only) |
+
+Click **Save & Connect**, then **Sign in with Google** as `tonyzorin@gmail.com` (or enter the allowed email + password if using password mode).
+
+**Both auth methods run together** — enabling OAuth does **not** replace Bearer tokens. Cursor keeps using `Authorization: Bearer am_…` in `mcp.json`; OAuth clients use `amo_…` tokens. `/mcp` accepts either via `MultiAuth`.
+
+OAuth sessions are in-memory; restarting the container invalidates OAuth tokens (re-authorize). OAuth access tokens expire after **7 days**. Bearer API key hashes are unaffected.
+
+Google Sign-In binds the authorize session to an HttpOnly cookie (`am_oauth_sid`) to block login CSRF. If a Google OAuth client secret is ever exposed, rotate it in Google Cloud Console and update `AGENTMEMORY_GOOGLE_CLIENT_SECRET` on the server.
+
 ### Deploy shape
 
 1. App listens on `127.0.0.1:8081` (or your port)
 2. Caddy/Cloudflare terminates TLS and proxies to localhost
 3. `AGENTMEMORY_AUTH_REQUIRED=true` + token hashes in `.env`
-4. Never expose the raw Docker port publicly without TLS **and** auth
+4. For OAuth: also proxy `/authorize`, `/token`, `/oauth/google/*`; keep `/.well-known/*` as 404 on the Cursor hostname
+5. Never expose the raw Docker port publicly without TLS **and** auth
 
 ---
 
@@ -320,9 +372,11 @@ Copy the one matching your client:
 
 | Client | File | Install to |
 |--------|------|------------|
+| All (reference) | [`rules/CORE.md`](rules/CORE.md) | Shared fetch/store policy |
 | Cursor | [`rules/cursor.mdc`](rules/cursor.mdc) | `.cursor/rules/agentmemory.mdc` |
 | Claude Code | [`rules/CLAUDE.md`](rules/CLAUDE.md) | Project root as `CLAUDE.md` |
 | ChatGPT | [`rules/chatgpt-instructions.md`](rules/chatgpt-instructions.md) | Settings → Personalization → Custom Instructions |
+| Grok | [`rules/grok-instructions.md`](rules/grok-instructions.md) | Custom instructions + MCP connector |
 | OpenClaw | [`rules/openclaw.md`](rules/openclaw.md) | See [OPENCLAW_SETUP.md](OPENCLAW_SETUP.md) |
 
 These rules implement **tiered context fetching** — the agent loads only the memory

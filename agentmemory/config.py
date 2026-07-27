@@ -75,15 +75,49 @@ class Settings(BaseSettings):
     agentmemory_token_hashes: str = ""
     agentmemory_token_pepper: str = ""
 
+    # OAuth for browser MCP clients (no /.well-known — Cursor-safe)
+    agentmemory_oauth_enabled: bool = False
+    agentmemory_oauth_password_hash: str = ""
+    agentmemory_oauth_client_id: str = "agentmemory"
+    agentmemory_public_base_url: str = "https://mem.agentmemory.md"
+    agentmemory_oauth_redirect_allowlist: str = (
+        "https://grok.com/connectors-oauth-exchange-code/"
+    )
+    agentmemory_oauth_allowed_email: str = "tonyzorin@gmail.com"
+    agentmemory_google_client_id: str = ""
+    agentmemory_google_client_secret: str = ""
+
+    @property
+    def oauth_allowed_email(self) -> str:
+        return self.agentmemory_oauth_allowed_email.strip().lower()
+
+    @property
+    def oauth_google_enabled(self) -> bool:
+        return bool(
+            self.agentmemory_google_client_id.strip()
+            and self.agentmemory_google_client_secret.strip()
+        )
+
     @property
     def project_anchors(self) -> dict[str, str]:
         return parse_project_anchors(self.project_anchors_json)
 
     @property
+    def oauth_redirect_allowlist(self) -> tuple[str, ...]:
+        parts = [
+            u.strip()
+            for u in self.agentmemory_oauth_redirect_allowlist.split(",")
+            if u.strip()
+        ]
+        return tuple(parts) if parts else ("https://grok.com/connectors-oauth-exchange-code/",)
+
+    @property
     def http_auth_enabled(self) -> bool:
         """True when HTTP/SSE should require a valid Bearer token."""
-        return self.agentmemory_auth_required or bool(
-            self.agentmemory_token_hashes.strip()
+        return (
+            self.agentmemory_auth_required
+            or bool(self.agentmemory_token_hashes.strip())
+            or self.agentmemory_oauth_enabled
         )
 
 

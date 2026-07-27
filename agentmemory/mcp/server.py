@@ -25,8 +25,11 @@ from typing import Any
 
 import fastmcp
 
+from fastmcp.server.auth import MultiAuth
+
 from agentmemory.config import settings
-from agentmemory.mcp.auth import build_auth_verifier
+from agentmemory.mcp.auth import build_http_auth
+from agentmemory.mcp.oauth import OAuthAuthorizationServer
 from agentmemory.mcp.tools import MemoryTools
 
 logger = logging.getLogger(__name__)
@@ -637,18 +640,67 @@ def main() -> None:
     auth = None
     if args.transport in ("sse", "streamable-http"):
         if settings.http_auth_enabled:
+            oauth_server: OAuthAuthorizationServer | None = None
+            if settings.agentmemory_oauth_enabled:
+                if (
+                    not settings.oauth_google_enabled
+                    and not settings.agentmemory_oauth_password_hash.strip()
+                ):
+                    logger.error(
+                        "AGENTMEMORY_OAUTH_ENABLED=true but neither Google credentials "
+                        "nor AGENTMEMORY_OAUTH_PASSWORD_HASH is set"
+                    )
+                    sys.exit(1)
+                oauth_server = OAuthAuthorizationServer(
+                    password_hash=settings.agentmemory_oauth_password_hash,
+                    password_pepper=settings.agentmemory_token_pepper,
+                    allowed_email=settings.oauth_allowed_email,
+                    google_client_id=settings.agentmemory_google_client_id,
+                    google_client_secret=settings.agentmemory_google_client_secret,
+                    public_base_url=settings.agentmemory_public_base_url,
+                    client_id=settings.agentmemory_oauth_client_id,
+                    redirect_allowlist=settings.oauth_redirect_allowlist,
+                )
+                oauth_server.register_routes(mcp)
+                login_mode = "Google" if settings.oauth_google_enabled else "password"
+                logger.info(
+                    "OAuth enabled for client_id=%s (%s login)",
+                    settings.agentmemory_oauth_client_id,
+                    login_mode,
+                )
             try:
-                auth = build_auth_verifier(
+                auth = build_http_auth(
                     auth_required=settings.agentmemory_auth_required,
                     token_hashes_raw=settings.agentmemory_token_hashes,
                     pepper=settings.agentmemory_token_pepper,
+                    oauth_enabled=settings.agentmemory_oauth_enabled,
+                    oauth_server=oauth_server,
                 )
             except ValueError as exc:
                 logger.error("%s", exc)
                 sys.exit(1)
             if auth is not None:
                 mcp.auth = auth
-                logger.info("HTTP auth enabled (%d token hash(es))", len(auth._token_hashes))
+                if isinstance(auth, MultiAuth):
+                    parts: list[str] = []
+                    for verifier in auth.verifiers:
+                        if hasattr(verifier, "_token_hashes"):
+                            parts.append(
+                                f"Bearer ({len(verifier._token_hashes)} hash(es))"
+                            )
+                        else:
+                            parts.append("OAuth (amo_ tokens)")
+                    logger.info(
+                        "HTTP auth enabled — both active: %s",
+                        " + ".join(parts) if parts else "MultiAuth",
+                    )
+                elif hasattr(auth, "_token_hashes"):
+                    logger.info(
+                        "HTTP auth enabled (Bearer: %d token hash(es))",
+                        len(auth._token_hashes),
+                    )
+                else:
+                    logger.info("HTTP auth enabled (OAuth amo_ tokens only)")
         else:
             logger.warning(
                 "HTTP transport without auth — only safe on localhost or Tailscale. "

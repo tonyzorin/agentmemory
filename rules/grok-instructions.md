@@ -1,6 +1,11 @@
-[agentmemory rules v2026.07.28 — ChatGPT adapter; shared policy: rules/CORE.md]
+[agentmemory rules v2026.07.28 — Grok adapter; shared policy: rules/CORE.md]
 
-Paste into ChatGPT Settings → Personalization → Custom Instructions ("How would you like ChatGPT to respond?"). Replace `acme-api` with your project slug.
+## Where to paste
+
+1. **MCP connector** — add mem at grok.com/connectors (Custom Connector with OAuth; see agentmemory README).
+2. **Behavior rules** — paste the block below into Grok custom instructions / system prompt if available, OR rely on this file in repo.
+
+OAuth connector settings (Client ID, endpoints) are separate from memory *usage* policy below.
 
 ---
 

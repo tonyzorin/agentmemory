@@ -2001,7 +2001,7 @@ def token_create():
     to add to your server .env. Use in Cursor/Claude as Authorization: Bearer <token>.
     """
     from agentmemory.config import settings
-    from agentmemory.mcp.auth import generate_api_token, hash_token
+    from agentmemory.mcp.tokens import generate_api_token, hash_token
 
     raw = generate_api_token()
     digest = hash_token(raw, settings.agentmemory_token_pepper)
@@ -2015,6 +2015,48 @@ def token_create():
         f"  AGENTMEMORY_TOKEN={raw}\n\n"
         "[yellow]The raw token is shown once. Copy it now.[/yellow]",
         title="mem token create",
+    ))
+
+
+# ---------------------------------------------------------------------------
+# oauth — browser MCP connector
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def oauth():
+    """Manage OAuth for browser MCP clients."""
+    pass
+
+
+@oauth.command("password-hash")
+@click.option(
+    "--password",
+    prompt=True,
+    hide_input=True,
+    confirmation_prompt=True,
+    help="OAuth consent password (shown on the authorize page)",
+)
+def oauth_password_hash(password: str):
+    """Hash a password for AGENTMEMORY_OAUTH_PASSWORD_HASH in server .env."""
+    from agentmemory.config import settings
+    from agentmemory.mcp.tokens import hash_token
+
+    digest = hash_token(password, settings.agentmemory_token_pepper)
+
+    console.print(Panel.fit(
+        "[bold]OAuth consent password hash[/bold]\n\n"
+        "Add to your server [cyan].env[/cyan]:\n"
+        f"  AGENTMEMORY_OAUTH_ENABLED=true\n"
+        f"  AGENTMEMORY_OAUTH_PASSWORD_HASH={digest}\n\n"
+        "Custom connector (paste after enabling OAuth in Caddy):\n"
+        f"  Client ID: {settings.agentmemory_oauth_client_id}\n"
+        f"  Authorization Endpoint: {settings.agentmemory_public_base_url.rstrip('/')}/authorize\n"
+        f"  Token Endpoint: {settings.agentmemory_public_base_url.rstrip('/')}/token\n"
+        f"  Scopes: memory:full\n"
+        f"  Token Auth Method: none (PKCE only)\n\n"
+        "[yellow]Do not commit the raw password.[/yellow]",
+        title="mem oauth password-hash",
     ))
 
 

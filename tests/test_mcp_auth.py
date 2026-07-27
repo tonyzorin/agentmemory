@@ -9,10 +9,9 @@ import pytest
 from agentmemory.mcp.auth import (
     HashedBearerTokenVerifier,
     build_auth_verifier,
-    generate_api_token,
-    hash_token,
-    parse_token_hashes,
+    build_http_auth,
 )
+from agentmemory.mcp.tokens import generate_api_token, hash_token, parse_token_hashes
 
 
 class TestTokenHashing:

@@ -1,88 +1,70 @@
-<!-- agentmemory rules v2026.03.15 -->
+<!-- agentmemory rules v2026.07.28 — OpenClaw adapter; shared policy: rules/CORE.md -->
 
 # agentmemory.md — OpenClaw Usage Rules
 
-For OpenClaw setup and connection instructions, see [OPENCLAW_SETUP.md](../OPENCLAW_SETUP.md).
+Setup: [OPENCLAW_SETUP.md](../OPENCLAW_SETUP.md)
 
 ## Auto-Recall and Auto-Capture (Plugin)
 
-If you have the [agentmemory-openclaw-plugin](https://gitlab.com/tonyzorin/agentmemory-openclaw-plugin) installed, recall and capture happen automatically on every turn — you do not need to call memory tools manually for basic recall. The plugin:
+With the [agentmemory-openclaw-plugin](https://gitlab.com/tonyzorin/agentmemory-openclaw-plugin):
 
-- **Auto-recall:** Classifies the first message of each session into a tier and injects the appropriate memory context before the AI responds. Subsequent turns use scoped `memory_recall` on the last user message.
-- **Auto-capture:** After each AI response, extracts decisions, learnings, and preferences using rule-based patterns and stores them via `memory_store`.
+- **Auto-recall:** First message tier-classified; later turns use scoped `memory_recall`.
+- **Auto-capture:** Post-response extraction of decisions/learnings/preferences.
 
-The plugin handles Tiers 2-4 automatically. You only need to trigger Tiers 0-1 explicitly (see below).
+Plugin handles Tiers 2–4 fetch automatically. Trigger **Tier 0–1** explicitly when needed.
 
-## Manual Recall — When the Plugin Is Not Installed
+## Manual Fetch (no plugin)
 
-If running without the plugin, classify the request and call only what the tier requires:
+Same tiers as [`CORE.md`](CORE.md):
 
-### Tier classification
+| Tier | Fetch |
+|---|---|
+| 0 | `memory_profile()` |
+| 1 | compact profile + goals + tasks |
+| 2 | `memory_entities(Project)` → `memory_context` |
+| 3 | `memory_context` if id known; else `memory_recall(..., tags=[slug])` |
+| 4 | nothing |
 
-| Tier | When | Signals |
-|------|------|---------|
-| **0** | Direct memory instruction | "check mem", "what do you know about me", explicit request for full memory context |
-| **1** | Planning / prioritization | "what should I work on", "morning briefing", cross-project strategy, goal review |
-| **2** | Any work — project unclear | Question where no context disambiguates which project it belongs to |
-| **3** | Project work — project is obvious | Project is clear from conversation context; feature work, refactoring, deployment |
-| **4** | Narrow technical work — project is obvious | Bug fix, linter error, specific file — use only what's in context |
+Reclassify on project change. Continuation with facts in thread = Tier 4.
 
-### Fetch only what the tier requires
+Never combine all four fetch tools unless Tier 0.
 
-**Tier 0:**
-```python
-memory_profile()  # full, include_recent=True
-```
+## Store Immediately (always — plugin may miss nuance)
 
-**Tier 1:**
-```python
-memory_profile(include_recent=False, limit=5)
-goal_manage(action="list")
-task_manage(action="list")
-```
-
-**Tier 2:**
-```python
-memory_entities(node_type="Project")  # lightweight directory
-memory_context(entity_id="<matched-project-id>", depth=2)
-```
-
-**Tier 3:**
-```python
-memory_recall("<specific question>", tags=["your-project-tag"])
-```
-
-**Tier 4:** Nothing. Use only the context already in the conversation.
-
-## Store Immediately
-
-Whether using the plugin or not, store important facts as they happen:
+Store manually when decisions/learnings need explicit rationale:
 
 ```python
-memory_store("Decided to use Postgres for primary storage", node_type="Decision", importance=0.85, tags=["acme-api"])
+memory_store("...", node_type="Decision", importance=0.85, tags=["acme-api"])
 learning_store(content="...", what_failed="...", why_it_failed="...", what_to_avoid="...", tags=["acme-api"])
 task_manage(action="complete", task_id="<id>", result_summary="...")
 ```
 
-The plugin auto-captures many facts, but decisions and learnings with explicit rationale should be stored manually for higher quality nodes.
+Wire same turn: `memory_relate(from_id=..., to_id="<project-id>", edge_type="ABOUT")`
 
-## Project Tags — Mandatory
+## Do NOT Store
 
-Every `memory_store`, `learning_store`, `goal_manage`, `task_manage` call MUST include at least one project tag. Discover existing tags:
+Secrets (`am_…`/`amo_…`, OAuth secrets, passwords, `.env`), debug output, git diffs, duplicates — even when plugin auto-captures; override bad captures with supersede.
 
-```python
-memory_entities(node_type="Project")
-```
+## Importance & node types
 
-Bootstrap your first project:
-```python
-memory_store("Acme API: Python/FastAPI SaaS backend", node_type="Project", tags=["acme-api"])
-```
+0.9–1.0 constraints · 0.85 decisions · 0.6–0.7 facts · ≤0.5 preferences. Preferences → `node_type="Preference"`.
+
+## Tags — Mandatory
+
+`memory_entities(node_type="Project")`. Bootstrap: `memory_store("...", node_type="Project", tags=["slug"])`
 
 ## One Fact Per Node
 
-Store atomic facts — one subject per node, max ~2 sentences. Split long nodes:
+Max ~2 sentences. `memory_split` if needed.
+
+## Supersede Same Turn
 
 ```python
-memory_split(memory_id="<id>", chunks=["fact 1", "fact 2", "fact 3"])
+result = memory_store("...", tags=["acme-api"])
+if isinstance(result, dict) and result.get("potential_conflict"):
+    memory_supersede(new_id=result["id"], old_id=result["potential_conflict"]["id"])
 ```
+
+## Session End — Safety Net
+
+Review missed stores and wiring.

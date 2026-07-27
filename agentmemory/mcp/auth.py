@@ -7,35 +7,20 @@ Stores only hashed tokens (never raw secrets in config). Clients send:
 
 from __future__ import annotations
 
-import hashlib
 import hmac
-import secrets
+from typing import TYPE_CHECKING
 
-from fastmcp.server.auth import TokenVerifier
+from fastmcp.server.auth import MultiAuth, TokenVerifier
 from mcp.server.auth.provider import AccessToken
 
+from agentmemory.mcp.tokens import (
+    generate_api_token,
+    hash_token,
+    parse_token_hashes,
+)
 
-def generate_api_token() -> str:
-    """Generate a new API token: am_ + 48 url-safe bytes (~384 bits)."""
-    return "am_" + secrets.token_urlsafe(48)
-
-
-def hash_token(token: str, pepper: str = "") -> str:
-    """Return lowercase hex SHA-256 of token (optionally prefixed with pepper)."""
-    material = f"{pepper}{token}" if pepper else token
-    return hashlib.sha256(material.encode("utf-8")).hexdigest()
-
-
-def parse_token_hashes(raw: str) -> set[str]:
-    """Parse comma-separated hex digests from AGENTMEMORY_TOKEN_HASHES."""
-    if not raw or not raw.strip():
-        return set()
-    hashes: set[str] = set()
-    for part in raw.split(","):
-        digest = part.strip().lower()
-        if digest:
-            hashes.add(digest)
-    return hashes
+if TYPE_CHECKING:
+    from agentmemory.mcp.oauth import OAuthAuthorizationServer
 
 
 class HashedBearerTokenVerifier(TokenVerifier):
@@ -86,3 +71,56 @@ def build_auth_verifier(
     if not hashes:
         return None
     return HashedBearerTokenVerifier(hashes, pepper=pepper)
+
+
+def build_http_auth(
+    *,
+    auth_required: bool,
+    token_hashes_raw: str,
+    pepper: str = "",
+    oauth_enabled: bool = False,
+    oauth_server: OAuthAuthorizationServer | None = None,
+) -> HashedBearerTokenVerifier | MultiAuth | None:
+    """
+    Build HTTP auth: hashed Bearer API keys and/or OAuth-issued tokens.
+
+    Uses MultiAuth with server=None so no OAuth discovery routes are mounted
+    (Cursor static Bearer headers stay safe). OAuth /authorize and /token are
+    registered separately via custom_route.
+    """
+    verifiers: list[TokenVerifier] = []
+
+    bearer = build_auth_verifier(auth_required, token_hashes_raw, pepper)
+    if bearer is not None:
+        verifiers.append(bearer)
+
+    if oauth_enabled:
+        if oauth_server is None:
+            raise ValueError(
+                "AGENTMEMORY_OAUTH_ENABLED=true but OAuth server was not initialized"
+            )
+        verifiers.append(oauth_server.verifier)
+
+    if not verifiers:
+        if auth_required or oauth_enabled:
+            raise ValueError(
+                "HTTP auth enabled but no verifiers configured. "
+                "Set AGENTMEMORY_TOKEN_HASHES and/or AGENTMEMORY_OAUTH_PASSWORD_HASH."
+            )
+        return None
+
+    if len(verifiers) == 1:
+        return verifiers[0]
+
+    return MultiAuth(server=None, verifiers=verifiers)
+
+
+# Re-export token helpers so existing imports from auth keep working.
+__all__ = [
+    "HashedBearerTokenVerifier",
+    "build_auth_verifier",
+    "build_http_auth",
+    "generate_api_token",
+    "hash_token",
+    "parse_token_hashes",
+]

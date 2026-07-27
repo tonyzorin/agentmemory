@@ -49,6 +49,9 @@ services:
       # HTTP auth — set in .env (see `mem token create` and README)
       # AGENTMEMORY_AUTH_REQUIRED: "true"
       # AGENTMEMORY_TOKEN_HASHES: "<sha256-hex>"
+      # OAuth for browser MCP clients (optional; Bearer tokens above stay active for Cursor)
+      # AGENTMEMORY_OAUTH_ENABLED: "true"
+      # AGENTMEMORY_OAUTH_PASSWORD_HASH: "<sha256-hex-from-mem-oauth-password-hash>"
     ports:
       - "127.0.0.1:8006:8006"
     depends_on:
