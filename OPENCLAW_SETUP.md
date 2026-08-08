@@ -1,82 +1,129 @@
 # Connecting OpenClaw to agentmemory.md
 
-## Prerequisites
+## Current deployment (VM 817 / ai-agent)
 
-1. The memory system is installed on VM 817 at `/home/agent1/agentmemory`
-2. Docker Compose services are running (PostgreSQL + AGE, Redis)
-3. Python virtual environment is set up
+| Component | Location |
+|-----------|----------|
+| agentmemory server | Docker `agentmemory-app` on `192.168.122.17:8081` |
+| agentmemory repo | `/home/anton/agentmemory` |
+| OpenClaw plugin | `/home/anton/agentmemory-plugin` (GitLab: `agentmemory-openclaw-plugin`) |
+| OpenClaw config | `/home/anton/.openclaw/openclaw.json` |
+| Gateway unit | `~/.config/systemd/user/openclaw-gateway.service` |
 
-## Installation on VM 817
+Public HTTPS for Cursor/Grok: `https://mem.agentmemory.md/mcp` (Caddy on hetzner → Tailscale `100.120.20.16:8081`).
+
+## Auth: use `am_` Bearer token, not Google Sign-In
+
+The agentmemory server supports **two auth paths on the same `/mcp` endpoint**:
+
+1. **Static `am_` API keys** — long-lived, for headless clients (OpenClaw gateway, Cursor).
+2. **Google OAuth `amo_` tokens** — interactive browser consent, 7-day TTL (Grok, web).
+
+OpenClaw is a headless daemon. It **cannot** complete Google Sign-In and should **not** use `amo_` tokens. Use an `am_` key instead. Google Sign-In remains available for browser clients; both paths coexist.
+
+Create a token (if needed):
 
 ```bash
-# Clone/copy the project
-git clone git@gitlab.com:tonyzorin/agentmemory.md.git /home/agent1/agentmemory
-cd /home/agent1/agentmemory
-
-# Create virtual environment
-python3 -m venv .venv
-
-# Install dependencies
-.venv/bin/pip install -e .
-
-# Copy and configure environment
-cp .env.example .env
-# Edit .env if needed (default ports: PG=5433, Redis=6380)
-
-# Start storage services
-docker compose up -d
-
-# Verify everything works
-.venv/bin/memory stats
+cd /home/anton/agentmemory
+docker exec agentmemory-app python -m agentmemory.cli.main token create
+# Add printed hash to AGENTMEMORY_TOKEN_HASHES in .env, restart container
 ```
 
-## OpenClaw Configuration
+## OpenClaw plugin setup
 
-Add to `~/.openclaw/openclaw.json` on VM 817:
+### 1. Install / update plugin
+
+```bash
+cd /home/anton/agentmemory-plugin
+git pull origin main
+npm install
+npm run build
+```
+
+### 2. Enable in `~/.openclaw/openclaw.json`
 
 ```json
 {
-  "mcpServers": {
-    "memory": {
-      "command": "/home/agent1/agentmemory/.venv/bin/python",
-      "args": ["-m", "agentmemory.mcp.server"],
-      "cwd": "/home/agent1/agentmemory",
-      "env": {
-        "DATABASE_URL": "postgresql://openclaw:openclaw@localhost:5433/openclaw_memory",
-        "REDIS_URL": "redis://localhost:6380/0"
+  "plugins": {
+    "load": {
+      "paths": ["/home/anton/agentmemory-plugin"]
+    },
+    "entries": {
+      "agentmemory": {
+        "enabled": true,
+        "config": {
+          "memoryUrl": "http://192.168.122.17:8081/mcp",
+          "recall": { "enabled": true, "limit": 8, "minScore": 0.55 },
+          "capture": { "enabled": true, "minTurnLength": 100, "dedupTtlHours": 4 }
+        }
       }
     }
   }
 }
 ```
 
-## Remote Access (Streamable HTTP)
+Use the Docker bridge IP (`192.168.122.17`), not `localhost` — the container is not bound to loopback.
 
-To access the memory system from other machines (e.g., your laptop's Cursor IDE), use Docker Compose (recommended) and expose via Tailscale:
+### 3. Provide the Bearer token via environment (recommended)
+
+Keep secrets out of `openclaw.json`:
 
 ```bash
-# Start all services via Docker Compose
-docker compose up -d
-
-# Expose port 8081 on your Tailscale IP (persists across reboots)
-tailscale serve --bg --tcp 8081 tcp://localhost:8081
+# ~/.openclaw/agentmemory.env  (chmod 600)
+AGENTMEMORY_TOKEN=am_...
 ```
 
-Then in your local Cursor `~/.cursor/mcp.json`:
+Wire into the gateway systemd unit (`~/.config/systemd/user/openclaw-gateway.service`):
+
+```ini
+[Service]
+EnvironmentFile=/home/anton/.openclaw/agentmemory.env
+```
+
+Then reload and restart:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart openclaw-gateway.service
+```
+
+### 4. Verify
+
+```bash
+openclaw logs --limit 20 | grep agentmemory
+```
+
+Expected:
+
+```
+[agentmemory] started — recall: true, capture: true, auth: enabled, url: http://192.168.122.17:8081/mcp
+[agentmemory] entity cache refreshed: N entities
+```
+
+If you see `auth: disabled` or `HTTP 401`, the gateway process is not loading `AGENTMEMORY_TOKEN`. Check `EnvironmentFile` and restart.
+
+**Note:** `openclaw agent` from an SSH shell without sourcing the env file runs an embedded agent that lacks the token. Gateway + Telegram use the systemd env and work correctly.
+
+## Remote access (Cursor / other machines)
+
+In `~/.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "agentmemory": {
-      "url": "http://ai-agent:8081/mcp"
+      "url": "https://mem.agentmemory.md/mcp",
+      "headers": {
+        "Authorization": "Bearer am_..."
+      }
     }
   }
 }
 ```
 
-## Available MCP Tools
+Use HTTPS (`mem.agentmemory.md`), not `http://` — clients strip `Authorization` on redirect.
 
-Once connected, the agent has access to these tools:
+## Available MCP tools
 
 | Tool | Description |
 |------|-------------|
@@ -85,83 +132,36 @@ Once connected, the agent has access to these tools:
 | `memory_relate` | Link entities in the knowledge graph |
 | `memory_context` | Get full context for any entity |
 | `memory_forget` | Remove outdated information |
-| `memory_profile` | Get user profile summary (preferences, projects, people, goals) |
+| `memory_profile` | Get user profile summary |
 | `goal_manage` | Create/list/complete goals and OKRs |
-| `initiative_manage` | Manage initiatives under goals |
 | `task_manage` | Create/complete tasks |
 | `timeline` | Query what happened in a time range |
 | `learning_store` | Record failed experiments |
 | `workflow_store` | Save reusable processes |
-| `competitor_manage` | Track competitive intelligence |
-| `metric_record` | Record KPI data points |
-| `metric_query` | Query metrics over time |
-| `customer_feedback_store` | Store customer feedback |
 
-## CLI Usage
+## CLI usage (on VM)
 
 ```bash
-# Store a memory
-memory store "Anton prefers Claude for coding tasks" --tags preferences,tools
-
-# Recall memories
-memory recall "what does Anton prefer for coding"
-
-# Record a learning
-memory learn "psycopg2-binary doesn't work on Python 3.14" \
-  --what-failed "psycopg2-binary installation" \
-  --why "No wheel for Python 3.14" \
-  --avoid "psycopg2-binary on Python 3.14"
-
-# Record a decision
-memory decide "Use Redis 8.4 for vector search" \
-  --rationale "Already proven in feedback1"
-
-# Create a goal
-memory goal create "Launch Feedback1 GTM" --project <project-id>
-
-# Get user profile
-memory profile
-
-# Get context about an entity
-memory context <entity-id>
-
-# Show timeline
-memory timeline --since 7d
-
-# Stats
-memory stats
-
-# Weekly hygiene (wire orphans, consolidate dupes, gc stale tasks)
-memory wire-orphans --dry-run
-memory wire-orphans
-memory consolidate --dry-run
-memory consolidate --threshold 0.88 --type Memory
-memory gc --dry-run
+docker exec -it agentmemory-app python -m agentmemory.cli.main stats
+docker exec -it agentmemory-app python -m agentmemory.cli.main recall "openclaw gateway"
 ```
 
-## Nightly Hygiene Routine (when OpenClaw works)
+Or from the repo with local venv — see main README.
 
-Until your automation agent is restored, run hygiene manually from Cursor or SSH on your deployment host.
+## Nightly hygiene routine
 
-When automation is back, add a nightly cron on the host where agentmemory runs:
+Add a cron on ai-agent (example: 03:00 daily):
 
 ```bash
-# /etc/cron.d/agentmemory-hygiene (example: 03:00 daily)
-0 3 * * * deploy-user cd /path/to/agentmemory && .venv/bin/memory wire-orphans >> /var/log/agentmemory-hygiene.log 2>&1
-15 3 * * * deploy-user cd /path/to/agentmemory && .venv/bin/memory consolidate --threshold 0.88 --type Memory >> /var/log/agentmemory-hygiene.log 2>&1
-30 3 * * * deploy-user cd /path/to/agentmemory && .venv/bin/memory gc --yes >> /var/log/agentmemory-hygiene.log 2>&1
+0 3 * * * anton docker exec agentmemory-app python -m agentmemory.cli.main wire-orphans >> /var/log/agentmemory-hygiene.log 2>&1
+15 3 * * * anton docker exec agentmemory-app python -m agentmemory.cli.main consolidate --threshold 0.88 --type Memory >> /var/log/agentmemory-hygiene.log 2>&1
+30 3 * * * anton docker exec agentmemory-app python -m agentmemory.cli.main gc --yes >> /var/log/agentmemory-hygiene.log 2>&1
 ```
 
-Ensure `PROJECT_ANCHORS_JSON` is set in that host's `.env` so `wire-orphans` knows your tag → Project UUID map.
-
-**What each step does:**
+Ensure `PROJECT_ANCHORS_JSON` is set in the container `.env` so `wire-orphans` knows your tag → Project UUID map.
 
 | Step | Command | Purpose |
 |------|---------|---------|
-| Wire orphans | `memory wire-orphans` | Link tagged facts → project anchors via `ABOUT` edges |
-| Consolidate | `memory consolidate --threshold 0.88` | Merge near-duplicate Memory nodes |
-| GC | `memory gc --yes` | Remove expired Task/Initiative nodes |
-
-**Interim (Cursor / manual):** After substantive sessions, agents should `memory_supersede` on `potential_conflict` from `memory_store`. Run `memory wire-orphans --dry-run` weekly to catch untagged orphans.
-
-**OpenClaw agent prompt (future):** Split coarse nodes (>2 sentences), wire `ABOUT` for new facts with project tags, supersede expired deadlines and contradictions.
+| Wire orphans | `wire-orphans` | Link tagged facts → project anchors via `ABOUT` edges |
+| Consolidate | `consolidate --threshold 0.88` | Merge near-duplicate Memory nodes |
+| GC | `gc --yes` | Remove expired Task/Initiative nodes |
