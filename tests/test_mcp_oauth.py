@@ -18,6 +18,7 @@ from agentmemory.mcp.oauth import (
     ACCESS_TOKEN_PREFIX,
     ACCESS_TOKEN_TTL_SECONDS,
     OAUTH_SESSION_COOKIE,
+    REFRESH_TOKEN_PREFIX,
     OAuthAuthorizationServer,
     PasswordRateLimiter,
     _normalize_scopes,
@@ -124,8 +125,26 @@ class TestRedirectAllowlist:
         uri = OAUTH_REDIRECT + "#fragment"
         assert _redirect_allowed(uri, (OAUTH_REDIRECT,)) is False
 
-    def test_rejects_http(self):
+    def test_rejects_http_non_loopback(self):
         assert _redirect_allowed("http://grok.com/callback", (OAUTH_REDIRECT,)) is False
+
+    def test_allows_ipv4_loopback(self):
+        assert _redirect_allowed("http://127.0.0.1:9876/callback", (OAUTH_REDIRECT,)) is True
+
+    def test_allows_localhost_loopback(self):
+        assert _redirect_allowed("http://localhost:8989/oauth/callback", (OAUTH_REDIRECT,)) is True
+
+    def test_allows_ipv6_loopback(self):
+        assert _redirect_allowed("http://[::1]:9999/callback", (OAUTH_REDIRECT,)) is True
+
+    def test_rejects_loopback_without_port(self):
+        assert _redirect_allowed("http://127.0.0.1/callback", (OAUTH_REDIRECT,)) is False
+
+    def test_rejects_loopback_query(self):
+        assert _redirect_allowed("http://127.0.0.1:9876/callback?x=1", (OAUTH_REDIRECT,)) is False
+
+    def test_rejects_evil_https(self):
+        assert _redirect_allowed("https://evil.example/callback", (OAUTH_REDIRECT,)) is False
 
 
 class TestScopeAllowlist:
@@ -152,11 +171,14 @@ class TestOAuthIssuedTokenVerifier:
 
         raw = ACCESS_TOKEN_PREFIX + secrets.token_urlsafe(16)
         digest = hash_token(raw, oauth_server._password_pepper)
-        oauth_server.store.access_tokens[digest] = StoredAccessToken(
-            token_hash=digest,
-            client_id=CLIENT_ID,
-            scopes=["memory:full"],
-            expires_at=time.time() + 3600,
+        oauth_server.store.put_access(
+            StoredAccessToken(
+                token_hash=digest,
+                client_id=CLIENT_ID,
+                scopes=["memory:full"],
+                expires_at=time.time() + 3600,
+            ),
+            ttl_seconds=3600,
         )
         result = await oauth_server.verifier.verify_token(raw)
         assert result is not None
@@ -212,6 +234,7 @@ class TestOAuthFlow:
             body = token_resp.json()
             assert body["token_type"] == "Bearer"
             assert body["access_token"].startswith(ACCESS_TOKEN_PREFIX)
+            assert body["refresh_token"].startswith(REFRESH_TOKEN_PREFIX)
             assert body["expires_in"] == ACCESS_TOKEN_TTL_SECONDS
 
             init_body = {
@@ -311,15 +334,104 @@ class TestOAuthFlow:
             assert token_resp.status_code == 400
             assert token_resp.json()["error"] == "invalid_grant"
 
-    def test_no_well_known_routes(self, oauth_mcp: FastMCP):
+    def test_loopback_redirect_authorize_ok(self, oauth_mcp: FastMCP):
+        _, challenge = _make_pkce_pair()
+        loopback = "http://127.0.0.1:41234/callback"
         with TestClient(oauth_mcp.http_app()) as client:
-            for path in (
-                "/.well-known/oauth-authorization-server",
-                "/.well-known/oauth-protected-resource",
-                "/.well-known/openid-configuration",
-            ):
-                resp = client.get(path)
-                assert resp.status_code == 404
+            resp = client.get(
+                "/authorize",
+                params=_authorize_params(challenge, redirect_uri=loopback),
+            )
+            assert resp.status_code == 200
+
+    def test_well_known_and_dcr(self, oauth_mcp: FastMCP):
+        with TestClient(oauth_mcp.http_app()) as client:
+            as_meta = client.get("/.well-known/oauth-authorization-server")
+            assert as_meta.status_code == 200
+            body = as_meta.json()
+            assert body["token_endpoint"].endswith("/token")
+            assert "refresh_token" in body["grant_types_supported"]
+            assert body["code_challenge_methods_supported"] == ["S256"]
+            assert body["registration_endpoint"].endswith("/register")
+
+            resource = client.get("/.well-known/oauth-protected-resource")
+            assert resource.status_code == 200
+            assert resource.json()["resource"].endswith("/mcp")
+            assert resource.json()["authorization_servers"][0] == "http://testserver"
+
+            resource_mcp = client.get("/.well-known/oauth-protected-resource/mcp")
+            assert resource_mcp.status_code == 200
+
+            oidc = client.get("/.well-known/openid-configuration")
+            assert oidc.status_code == 404
+
+            dcr = client.post(
+                "/register",
+                json={"redirect_uris": ["http://127.0.0.1:41234/callback"]},
+            )
+            assert dcr.status_code == 201
+            assert dcr.json()["client_id"] == CLIENT_ID
+            assert dcr.json()["token_endpoint_auth_method"] == "none"
+
+            evil = client.post(
+                "/register",
+                json={"redirect_uris": ["https://evil.example/callback"]},
+            )
+            assert evil.status_code == 400
+            assert evil.json()["error"] == "invalid_redirect_uri"
+
+    def test_refresh_token_rotates(self, oauth_mcp: FastMCP):
+        verifier, challenge = _make_pkce_pair()
+        with TestClient(oauth_mcp.http_app()) as client:
+            auth_post = client.post(
+                "/authorize",
+                data=_authorize_params(
+                    challenge, email=ALLOWED_EMAIL, password=OAUTH_PASSWORD
+                ),
+                follow_redirects=False,
+            )
+            from urllib.parse import parse_qs, urlparse
+
+            code = parse_qs(urlparse(auth_post.headers["location"]).query)["code"][0]
+            first = client.post(
+                "/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": OAUTH_REDIRECT,
+                    "code_verifier": verifier,
+                    "client_id": CLIENT_ID,
+                },
+            )
+            assert first.status_code == 200
+            old_refresh = first.json()["refresh_token"]
+            old_access = first.json()["access_token"]
+
+            refreshed = client.post(
+                "/token",
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": old_refresh,
+                    "client_id": CLIENT_ID,
+                },
+            )
+            assert refreshed.status_code == 200
+            body = refreshed.json()
+            assert body["access_token"].startswith(ACCESS_TOKEN_PREFIX)
+            assert body["access_token"] != old_access
+            assert body["refresh_token"].startswith(REFRESH_TOKEN_PREFIX)
+            assert body["refresh_token"] != old_refresh
+
+            replay = client.post(
+                "/token",
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": old_refresh,
+                    "client_id": CLIENT_ID,
+                },
+            )
+            assert replay.status_code == 400
+            assert replay.json()["error"] == "invalid_grant"
 
 
 class TestPasswordRateLimit:
@@ -343,6 +455,17 @@ class TestPasswordRateLimit:
 
 
 class TestGoogleOAuthSecurity:
+    def test_authorize_page_uses_human_description(self, google_oauth_mcp: FastMCP):
+        _, challenge = _make_pkce_pair()
+        with TestClient(google_oauth_mcp.http_app()) as client:
+            auth_get = client.get("/authorize", params=_authorize_params(challenge))
+        assert auth_get.status_code == 200
+        assert "store and recall memories" in auth_get.text
+        assert "Sign in with Google" in auth_get.text
+        assert "Client:" not in auth_get.text
+        assert "Allowed account:" not in auth_get.text
+        assert ALLOWED_EMAIL not in auth_get.text
+
     def test_google_login_without_cookie_rejected(self, google_oauth_mcp: FastMCP):
         _, challenge = _make_pkce_pair()
         with TestClient(google_oauth_mcp.http_app()) as client:
@@ -519,3 +642,67 @@ class TestMultiAuthWithOAuth:
                 headers={"Authorization": f"Bearer {oauth_token}"},
             )
             assert oauth_resp.status_code != 401
+
+
+class TestRedisOAuthPersistence:
+    @pytest.mark.asyncio
+    async def test_tokens_survive_new_server_instance(self, oauth_password_hash: str):
+        from tests.conftest import TEST_REDIS_URL
+
+        prefix = f"test:oauth:{secrets.token_hex(8)}:"
+        kwargs = dict(
+            password_hash=oauth_password_hash,
+            allowed_email=ALLOWED_EMAIL,
+            client_id=CLIENT_ID,
+            redirect_allowlist=(OAUTH_REDIRECT,),
+            redis_url=TEST_REDIS_URL,
+            redis_key_prefix=prefix,
+        )
+        first = OAuthAuthorizationServer(**kwargs)
+        mcp = FastMCP("test-oauth-redis", auth=first.verifier)
+        first.register_routes(mcp)
+
+        verifier, challenge = _make_pkce_pair()
+        with TestClient(mcp.http_app()) as client:
+            auth_post = client.post(
+                "/authorize",
+                data=_authorize_params(
+                    challenge, email=ALLOWED_EMAIL, password=OAUTH_PASSWORD
+                ),
+                follow_redirects=False,
+            )
+            from urllib.parse import parse_qs, urlparse
+
+            code = parse_qs(urlparse(auth_post.headers["location"]).query)["code"][0]
+            token_resp = client.post(
+                "/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": OAUTH_REDIRECT,
+                    "code_verifier": verifier,
+                    "client_id": CLIENT_ID,
+                },
+            )
+            assert token_resp.status_code == 200
+            access = token_resp.json()["access_token"]
+            refresh = token_resp.json()["refresh_token"]
+
+        restarted = OAuthAuthorizationServer(**kwargs)
+        result = await restarted.verifier.verify_token(access)
+        assert result is not None
+        assert result.client_id == CLIENT_ID
+
+        mcp2 = FastMCP("test-oauth-redis-2", auth=restarted.verifier)
+        restarted.register_routes(mcp2)
+        with TestClient(mcp2.http_app()) as client:
+            refreshed = client.post(
+                "/token",
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh,
+                    "client_id": CLIENT_ID,
+                },
+            )
+            assert refreshed.status_code == 200
+            assert refreshed.json()["access_token"].startswith(ACCESS_TOKEN_PREFIX)

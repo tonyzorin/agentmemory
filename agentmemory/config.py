@@ -75,7 +75,8 @@ class Settings(BaseSettings):
     agentmemory_token_hashes: str = ""
     agentmemory_token_pepper: str = ""
 
-    # OAuth for browser MCP clients (no /.well-known — Cursor-safe)
+    # OAuth for browser/native MCP clients. App serves /.well-known for LAN
+    # (OpenClaw). Public mem.agentmemory.md still 404s well-known via Caddy.
     agentmemory_oauth_enabled: bool = False
     agentmemory_oauth_password_hash: str = ""
     agentmemory_oauth_client_id: str = "agentmemory"

@@ -39,9 +39,6 @@ class PendingOAuthSession:
 
 def _google_consent_html(
     *,
-    client_id: str,
-    scope: str,
-    allowed_email: str,
     login_url: str,
     error: str | None,
 ) -> str:
@@ -55,7 +52,7 @@ def _google_consent_html(
   <title>Authorize agentmemory</title>
   <style>
     body {{ font-family: system-ui, sans-serif; max-width: 28rem; margin: 3rem auto; padding: 0 1rem; text-align: center; }}
-    .meta {{ color: #555; font-size: 0.9rem; margin: 1rem 0 1.5rem; }}
+    .meta {{ color: #555; font-size: 0.9rem; margin: 1rem 0 1.5rem; line-height: 1.45; }}
     .google-btn {{
       display: inline-flex; align-items: center; gap: 0.75rem;
       padding: 0.65rem 1.25rem; border: 1px solid #dadce0; border-radius: 999px;
@@ -68,9 +65,7 @@ def _google_consent_html(
 </head>
 <body>
   <h1>Authorize access</h1>
-  <p class="meta">Client: <code>{html.escape(client_id)}</code><br>
-  Scope: <code>{html.escape(scope)}</code><br>
-  Allowed account: <code>{html.escape(allowed_email)}</code></p>
+  <p class="meta">This app wants to connect to your agentmemory so it can store and recall memories on your behalf.</p>
   {err_block}
   <a class="google-btn" href="{html.escape(login_url)}">
     <svg class="google-icon" viewBox="0 0 48 48" aria-hidden="true">
@@ -169,9 +164,6 @@ def register_google_routes(server: OAuthAuthorizationServer, mcp) -> None:
         if not email_verified:
             return HTMLResponse(
                 _google_consent_html(
-                    client_id=pending.client_id,
-                    scope=" ".join(pending.scopes),
-                    allowed_email=server._allowed_email,
                     login_url=f"/oauth/google/login?session={session_id}",
                     error="Google account email is not verified.",
                 ),
@@ -181,9 +173,6 @@ def register_google_routes(server: OAuthAuthorizationServer, mcp) -> None:
         if not server._check_email(email):
             return HTMLResponse(
                 _google_consent_html(
-                    client_id=pending.client_id,
-                    scope=" ".join(pending.scopes),
-                    allowed_email=server._allowed_email,
                     login_url=f"/oauth/google/login?session={session_id}",
                     error=f"Access denied. Sign in with {server._allowed_email}.",
                 ),

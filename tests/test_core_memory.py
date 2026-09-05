@@ -221,6 +221,43 @@ class TestRelate:
         relations = memory.postgres.get_relations(from_id=mem["id"])
         assert any(r["edge_type"] == "ABOUT" for r in relations)
 
+    def test_relate_same_triple_is_idempotent(self, memory):
+        proj = memory.store_project(
+            name=f"idempotent-proj-{uuid.uuid4().hex[:8]}",
+            description="Idempotent relate",
+        )
+        mem = memory.store(
+            content=f"Idempotent relate memory {uuid.uuid4().hex[:8]}",
+            node_type="Memory",
+        )
+        assert memory.relate(mem["id"], proj["id"], "ABOUT") is True
+        assert memory.relate(mem["id"], proj["id"], "ABOUT") is True
+        relations = memory.postgres.get_relations(
+            from_id=mem["id"], to_id=proj["id"], edge_type="ABOUT"
+        )
+        assert len(relations) == 1
+
+
+# ---------------------------------------------------------------------------
+# Split
+# ---------------------------------------------------------------------------
+
+
+class TestSplit:
+    def test_split_rejects_empty_chunks(self, memory):
+        mem = memory.store(content="Do not delete me on empty split", node_type="Memory")
+        with pytest.raises(ValueError, match="at least 1 nonempty"):
+            memory.split(mem["id"], chunks=["  ", ""])
+        assert memory.postgres.get_entity(mem["id"]) is not None
+
+    def test_split_one_chunk_deletes_original(self, memory):
+        marker = f"core-split-{uuid.uuid4().hex[:8]}"
+        mem = memory.store(content=f"{marker} packed", node_type="Memory")
+        result = memory.split(mem["id"], chunks=[f"{marker} atomic"])
+        assert result["chunks_created"] == 1
+        assert memory.postgres.get_entity(mem["id"]) is None
+        assert memory.postgres.get_entity(result["new_ids"][0]) is not None
+
 
 # ---------------------------------------------------------------------------
 # Context

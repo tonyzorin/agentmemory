@@ -12,14 +12,42 @@
 
 Public HTTPS for Cursor/Grok: `https://mem.agentmemory.md/mcp` (Caddy on hetzner → Tailscale `100.120.20.16:8081`).
 
-## Auth: use `am_` Bearer token, not Google Sign-In
+## Two auth paths (they coexist)
 
-The agentmemory server supports **two auth paths on the same `/mcp` endpoint**:
+The same `/mcp` endpoint accepts:
 
-1. **Static `am_` API keys** — long-lived, for headless clients (OpenClaw gateway, Cursor).
-2. **Google OAuth `amo_` tokens** — interactive browser consent, 7-day TTL (Grok, web).
+1. **Static `am_` API keys** — long-lived. Used by Cursor and by the **OpenClaw auto-recall plugin**.
+2. **Google OAuth** — `amo_` access tokens (1 hour) + rotating `amr_` refresh tokens (90 days). Used by Grok and by **OpenClaw native MCP tools** (`mcp.servers.agentmemory`).
 
-OpenClaw is a headless daemon. It **cannot** complete Google Sign-In and should **not** use `amo_` tokens. Use an `am_` key instead. Google Sign-In remains available for browser clients; both paths coexist.
+Hashed OAuth tokens live in Redis, so an app restart no longer wipes them.
+
+## Native MCP tools (OAuth)
+
+OpenClaw's MCP client can refresh tokens on its own. Configure OAuth, then login once from a browser:
+
+```bash
+openclaw mcp set agentmemory '{"url":"http://192.168.122.17:8081/mcp","transport":"streamable-http","auth":"oauth","oauth":{"scope":"memory:full"}}'
+openclaw mcp login agentmemory
+```
+
+Open the printed URL, sign in with Google as `tonyzorin@gmail.com`. On the VM the loopback callback cannot reach your laptop, so copy the `code` query param from the failed `http://127.0.0.1:…/oauth/callback` URL and finish with:
+
+```bash
+export PATH=/home/anton/.nvm/versions/node/v22.23.2/bin:$PATH
+openclaw mcp login agentmemory --code <code-from-redirect-url>
+```
+
+Verify:
+
+```bash
+openclaw mcp doctor agentmemory --probe
+```
+
+Re-login only if the 90-day refresh token is revoked or Redis is wiped.
+
+## Plugin auto-recall: still `am_` (not OAuth)
+
+The plugin is a small HTTP client, not OpenClaw's OAuth stack. Keep `AGENTMEMORY_TOKEN=am_...` in `~/.openclaw/agentmemory.env`.
 
 Create a token (if needed):
 

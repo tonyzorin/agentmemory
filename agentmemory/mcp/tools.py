@@ -41,6 +41,20 @@ _AUTO_ABOUT_NODE_TYPES = frozenset({
     "Memory", "Learning", "Decision", "Preference", "Workflow", "CustomerFeedback",
 })
 
+_PROJECT_NAME_PUNCT = frozenset(".!?")
+
+
+def _validate_project_name(name: str | None) -> str | None:
+    """Return an error reason if a Project name is missing or not a short slug."""
+    if not name or not str(name).strip():
+        return "Project nodes require an explicit short name (e.g. name='acme-api')"
+    n = str(name).strip()
+    if len(n) > 80:
+        return "Project name must be at most 80 characters"
+    if any(c in n for c in _PROJECT_NAME_PUNCT):
+        return "Project name must be a short title/slug without . ! or ?"
+    return None
+
 
 def _error(code: str, reason: str, service: str = "memory") -> dict[str, Any]:
     return {"error": code, "reason": reason, "service": service}
@@ -178,6 +192,11 @@ class MemoryTools:
                 "invalid_node_type",
                 f"node_type must be one of: {sorted(VALID_NODE_TYPES)}",
             )
+
+        if node_type == "Project":
+            name_error = _validate_project_name(name)
+            if name_error:
+                return _error("invalid_input", name_error)
 
         if not tags:
             logger.warning(
@@ -317,12 +336,22 @@ class MemoryTools:
             cur = conn.cursor()
             if node_type:
                 cur.execute(
-                    "SELECT id, node_type, name FROM entities WHERE node_type = %s ORDER BY node_type, name",
+                    f"""
+                    SELECT id, node_type, name FROM entities
+                    WHERE node_type = %s
+                    {_NOT_SUPERSEDED_SQL}
+                    ORDER BY node_type, name
+                    """,
                     (node_type,),
                 )
             else:
                 cur.execute(
-                    "SELECT id, node_type, name FROM entities ORDER BY node_type, name"
+                    f"""
+                    SELECT id, node_type, name FROM entities
+                    WHERE TRUE
+                    {_NOT_SUPERSEDED_SQL}
+                    ORDER BY node_type, name
+                    """
                 )
             rows = cur.fetchall()
             conn.close()
@@ -617,8 +646,10 @@ class MemoryTools:
         """
         if not memory_id:
             return _error("invalid_input", "memory_id is required")
-        if not chunks or len(chunks) < 2:
-            return _error("invalid_input", "chunks must contain at least 2 items")
+        nonempty = [c.strip() for c in (chunks or []) if c and c.strip()]
+        if not nonempty:
+            return _error("invalid_input", "chunks must contain at least 1 nonempty item")
+        chunks = nonempty
 
         try:
             result = self.memory.split(

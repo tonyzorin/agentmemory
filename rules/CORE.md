@@ -147,9 +147,9 @@ Discover existing projects and slugs:
 memory_entities(node_type="Project")
 ```
 
-Use short, lowercase, hyphenated slugs. Bootstrap a new project:
+Use short, lowercase, hyphenated slugs. Bootstrap a new project (name is required — a short slug, not a sentence):
 ```python
-memory_store("Acme API: Python/FastAPI SaaS backend", node_type="Project", tags=["acme-api"])
+memory_store("Python/FastAPI SaaS backend", node_type="Project", name="acme-api", tags=["acme-api"])
 ```
 
 ## Task Tracking
@@ -173,7 +173,7 @@ memory_store("Acme API uses Black for formatting", node_type="Preference", tags=
 memory_store("Acme uses Black, deploys on Hetzner, John is lead...", ...)
 ```
 
-Split long nodes: `memory_split(memory_id="<id>", chunks=[...])`
+Split long nodes: `memory_split(memory_id="<id>", chunks=[...])`. Store the durable fact, then supersede play-by-play session diaries.
 
 ## Conflict Resolution — Supersede Same Turn
 

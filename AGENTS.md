@@ -213,9 +213,9 @@ memory_recall("deployment issues", tags=["acme-api"])
 task_manage(action="create", name="Add auth endpoint", tags=["acme-api"])
 ```
 
-**Bootstrap: if no projects exist yet, store the first one:**
+**Bootstrap: if no projects exist yet, store the first one (name is a short slug, not a sentence):**
 ```python
-memory_store("Acme API: Python/FastAPI SaaS backend", node_type="Project", tags=["acme-api"])
+memory_store("Python/FastAPI SaaS backend", node_type="Project", name="acme-api", tags=["acme-api"])
 ```
 
 Tags are free-form strings — use short, lowercase, hyphenated slugs that match your project names. Multiple tags are allowed when a memory spans projects.
@@ -372,7 +372,7 @@ memory_split(
     ]
 )
 ```
-The original node is deleted. Each chunk becomes a new node inheriting the original's type, importance, tags, and graph edges.
+The original node is deleted. Each chunk becomes a new node inheriting the original's type, importance, tags, and graph edges. A single nonempty chunk is allowed (rewrite or retype); zero nonempty chunks is an error.
 
 ### `memory_batch_update` — bulk-update importance
 ```python

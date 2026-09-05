@@ -53,6 +53,8 @@ CREATE INDEX IF NOT EXISTS idx_relations_from_id ON relations (from_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to_id ON relations (to_id);
 CREATE INDEX IF NOT EXISTS idx_relations_edge_type ON relations (edge_type);
 CREATE INDEX IF NOT EXISTS idx_relations_from_edge ON relations (from_id, edge_type);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_relations_from_to_type
+    ON relations (from_id, to_id, edge_type);
 
 CREATE TABLE IF NOT EXISTS metric_data_points (
     id          TEXT PRIMARY KEY,

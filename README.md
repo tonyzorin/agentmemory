@@ -243,7 +243,7 @@ claude mcp add --transport http agentmemory https://mem.yourdomain.com/mcp \
 
 ### OAuth (browser MCP clients)
 
-Some browser-based MCP clients cannot paste a static Bearer token — they need OAuth with PKCE. agentmemory exposes `/authorize` and `/token` **without** `/.well-known` discovery so Cursor static Bearer headers keep working on the same host.
+Some browser-based MCP clients cannot paste a static Bearer token — they need OAuth with PKCE. The app exposes `/authorize`, `/token`, `/register`, and `/.well-known` discovery. **Public Cursor on `mem.agentmemory.md` still 404s `/.well-known` via Caddy**, so Cursor keeps using static Bearer headers.
 
 **1. Enable on the server**
 
@@ -268,7 +268,7 @@ Or password consent (fallback):
 mem oauth password-hash   # prints AGENTMEMORY_OAUTH_PASSWORD_HASH
 ```
 
-Proxy `/authorize`, `/token`, and `/oauth/google/*` in Caddy. Restart the app.
+Proxy `/authorize`, `/token`, `/register`, and `/oauth/google/*` in Caddy. Keep `/.well-known` as 404 on the Cursor hostname. Restart the app.
 
 **2. Custom connector** (paste these in the client's OAuth form)
 
@@ -286,7 +286,9 @@ Click **Save & Connect**, then **Sign in with Google** as `tonyzorin@gmail.com` 
 
 **Both auth methods run together** — enabling OAuth does **not** replace Bearer tokens. Cursor keeps using `Authorization: Bearer am_…` in `mcp.json`; OAuth clients use `amo_…` tokens. `/mcp` accepts either via `MultiAuth`.
 
-OAuth sessions are in-memory; restarting the container invalidates OAuth tokens (re-authorize). OAuth access tokens expire after **7 days**. Bearer API key hashes are unaffected.
+OAuth access tokens (`amo_`) expire after **1 hour**. Clients receive a rotating `amr_` refresh token (90 days). Hashed tokens are stored in Redis so they survive container restarts. Bearer API key hashes are unaffected.
+
+OpenClaw (headless gateway) should use native MCP OAuth: `auth: "oauth"` plus `openclaw mcp login agentmemory`. The auto-recall plugin keeps using a long-lived `am_` key — it is not an OAuth client.
 
 Google Sign-In binds the authorize session to an HttpOnly cookie (`am_oauth_sid`) to block login CSRF. If a Google OAuth client secret is ever exposed, rotate it in Google Cloud Console and update `AGENTMEMORY_GOOGLE_CLIENT_SECRET` on the server.
 
@@ -295,7 +297,7 @@ Google Sign-In binds the authorize session to an HttpOnly cookie (`am_oauth_sid`
 1. App listens on `127.0.0.1:8081` (or your port)
 2. Caddy/Cloudflare terminates TLS and proxies to localhost
 3. `AGENTMEMORY_AUTH_REQUIRED=true` + token hashes in `.env`
-4. For OAuth: also proxy `/authorize`, `/token`, `/oauth/google/*`; keep `/.well-known/*` as 404 on the Cursor hostname
+4. For OAuth: also proxy `/authorize`, `/token`, `/register`, `/oauth/google/*`; keep `/.well-known/*` as 404 on the Cursor hostname
 5. Never expose the raw Docker port publicly without TLS **and** auth
 
 ---

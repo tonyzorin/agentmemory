@@ -33,6 +33,7 @@ class PostgresClient:
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
         self.conn.autocommit = False
+        self._ensure_relation_uniqueness()
 
     # ------------------------------------------------------------------
     # Entities
@@ -98,14 +99,49 @@ class PostgresClient:
             self.conn.rollback()
             raise
 
+    def _ensure_relation_uniqueness(self) -> None:
+        """Dedupe (from_id, to_id, edge_type) and add a unique index if missing."""
+        self._rollback_if_needed()
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM relations a
+                    USING relations b
+                    WHERE a.from_id = b.from_id
+                      AND a.to_id = b.to_id
+                      AND a.edge_type = b.edge_type
+                      AND a.id > b.id
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_relations_from_to_type
+                    ON relations (from_id, to_id, edge_type)
+                    """
+                )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            logger.warning("Could not ensure unique relations index", exc_info=True)
+
     def list_entities_by_type(
         self, node_type: str, limit: int = 100
     ) -> list[dict[str, Any]]:
-        """List entities of a given type."""
+        """List entities of a given type, excluding SUPERSEDES targets."""
         self._rollback_if_needed()
         with self.conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM entities WHERE node_type = %s ORDER BY created_at DESC LIMIT %s",
+                """
+                SELECT * FROM entities
+                WHERE node_type = %s
+                  AND NOT EXISTS (
+                      SELECT 1 FROM relations r
+                      WHERE r.to_id = entities.id AND r.edge_type = 'SUPERSEDES'
+                  )
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
                 (node_type, limit),
             )
             return [dict(r) for r in cur.fetchall()]
@@ -167,9 +203,7 @@ class PostgresClient:
                     """
                     INSERT INTO relations (id, from_id, to_id, edge_type, properties)
                     VALUES (%(id)s, %(from_id)s, %(to_id)s, %(edge_type)s, %(properties)s)
-                    ON CONFLICT (id) DO UPDATE SET
-                        edge_type  = EXCLUDED.edge_type,
-                        properties = EXCLUDED.properties
+                    ON CONFLICT (from_id, to_id, edge_type) DO NOTHING
                     """,
                     {
                         "id": relation["id"],

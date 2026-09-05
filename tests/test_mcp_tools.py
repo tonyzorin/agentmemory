@@ -7,6 +7,7 @@ of each tool including graceful degradation.
 """
 
 import time
+import uuid
 
 import pytest
 
@@ -383,3 +384,135 @@ class TestGracefulDegradation:
         for call in tool_calls:
             result = call()
             assert isinstance(result, dict), f"Tool returned non-dict: {result}"
+
+
+# ---------------------------------------------------------------------------
+# SUPERSEDES directory filter, Project name guard, one-chunk split
+# ---------------------------------------------------------------------------
+
+
+class TestSupersedeDirectoryFilter:
+    def test_entities_and_typed_lists_hide_superseded(self, tools):
+        marker = f"hygiene-dir-{uuid.uuid4().hex[:8]}"
+        old = tools.memory_store(
+            content=f"{marker} leftover Tototheo employment until March 2026",
+            node_type="Memory",
+            tags=["hygiene"],
+        )
+        new = tools.memory_store(
+            content=f"{marker} current MSP360 full-time day job since April 2026",
+            node_type="Memory",
+            tags=["hygiene"],
+        )
+        assert old.get("id") and new.get("id")
+        assert old["id"] != new["id"], new
+        superseded = tools.memory_supersede(new_id=new["id"], old_id=old["id"])
+        assert superseded.get("success") is True
+
+        entities = tools.memory_entities()
+        ids = {e["id"] for e in entities.get("entities", [])}
+        assert new["id"] in ids
+        assert old["id"] not in ids
+
+        listed = tools.memory_list(node_type="Memory", limit=200)
+        list_ids = {n["id"] for n in listed.get("nodes", [])}
+        assert old["id"] not in list_ids
+
+        recall = tools.memory_recall(query=f"{marker} MSP360 full-time day job", limit=10)
+        recall_ids = {r["id"] for r in recall.get("results", [])}
+        assert old["id"] not in recall_ids
+
+    def test_goal_and_task_lists_hide_superseded(self, tools):
+        marker = f"hygiene-goal-{uuid.uuid4().hex[:8]}"
+        old_goal = tools.goal_manage(
+            action="create",
+            name=f"{marker} old goal",
+            description="stale",
+        )
+        new_goal = tools.goal_manage(
+            action="create",
+            name=f"{marker} new goal",
+            description="current",
+        )
+        tools.memory_supersede(new_id=new_goal["id"], old_id=old_goal["id"])
+        goals = tools.goal_manage(action="list")
+        goal_ids = {g["id"] for g in goals.get("goals", [])}
+        assert new_goal["id"] in goal_ids
+        assert old_goal["id"] not in goal_ids
+
+        old_task = tools.task_manage(
+            action="create",
+            name=f"{marker} old task",
+        )
+        new_task = tools.task_manage(
+            action="create",
+            name=f"{marker} new task",
+        )
+        tools.memory_supersede(new_id=new_task["id"], old_id=old_task["id"])
+        tasks = tools.task_manage(action="list")
+        task_ids = {t["id"] for t in tasks.get("tasks", [])}
+        assert new_task["id"] in task_ids
+        assert old_task["id"] not in task_ids
+
+
+class TestProjectNameGuard:
+    def test_project_without_name_is_rejected(self, tools):
+        result = tools.memory_store(
+            content="Python/FastAPI SaaS backend",
+            node_type="Project",
+            tags=["hygiene"],
+        )
+        assert result.get("error") == "invalid_input"
+
+    def test_project_name_with_sentence_punct_is_rejected(self, tools):
+        result = tools.memory_store(
+            content="A real product description",
+            node_type="Project",
+            name="Project has 79 stars.",
+            tags=["hygiene"],
+        )
+        assert result.get("error") == "invalid_input"
+
+    def test_project_with_short_name_is_accepted(self, tools):
+        slug = f"hygiene-proj-{uuid.uuid4().hex[:8]}"
+        result = tools.memory_store(
+            content="Python/FastAPI SaaS backend",
+            node_type="Project",
+            name=slug,
+            tags=["hygiene"],
+        )
+        assert "id" in result
+        assert "error" not in result
+
+
+class TestMemorySplitOneChunk:
+    def test_zero_chunks_is_rejected(self, tools):
+        stored = tools.memory_store(
+            content="Node that should not be deleted by empty split",
+            node_type="Memory",
+            tags=["hygiene"],
+        )
+        result = tools.memory_split(memory_id=stored["id"], chunks=["  ", ""])
+        assert result.get("error") == "invalid_input"
+        still = tools.memory.postgres.get_entity(stored["id"])
+        assert still is not None
+
+    def test_one_chunk_retypes_and_deletes_original(self, tools):
+        marker = f"hygiene-split-{uuid.uuid4().hex[:8]}"
+        stored = tools.memory_store(
+            content=f"{marker} mixed YouTrack and other claim",
+            node_type="Memory",
+            tags=["hygiene"],
+        )
+        result = tools.memory_split(
+            memory_id=stored["id"],
+            chunks=[f"{marker} YouTrack MCP only"],
+            node_type="Memory",
+        )
+        assert "error" not in result
+        assert result.get("chunks_created") == 1
+        assert tools.memory.postgres.get_entity(stored["id"]) is None
+        new_id = result["new_ids"][0]
+        new_ent = tools.memory.postgres.get_entity(new_id)
+        assert new_ent is not None
+        assert new_ent["node_type"] == "Memory"

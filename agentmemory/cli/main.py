@@ -551,7 +551,7 @@ def update(memory_id, content, name, tags, importance):
 @cli.command()
 @click.argument("memory_id")
 @click.option("--chunk", "chunks", multiple=True, required=True,
-              help="A focused content chunk (repeat for each chunk, min 2)")
+              help="A focused content chunk (repeat for each chunk, min 1)")
 @click.option("--type", "node_type", default=None, help="Override node type for new nodes")
 @click.option("--importance", "-i", type=float, default=None, help="Override importance for new nodes")
 @click.option("--tags", default=None, help="Override tags (comma-separated)")
@@ -568,8 +568,8 @@ def split(memory_id, chunks, node_type, importance, tags):
         --chunk "Anton led EMEL grant application for busonmap in 2026" \\
         --chunk "Anton's career focus is B2B SaaS and public transport tech"
     """
-    if len(chunks) < 2:
-        console.print("[red]Error:[/red] Provide at least 2 --chunk values")
+    if not chunks:
+        console.print("[red]Error:[/red] Provide at least 1 --chunk value")
         sys.exit(1)
 
     tag_list = [t.strip() for t in tags.split(",")] if tags else None

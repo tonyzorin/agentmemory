@@ -1,10 +1,11 @@
 """
-Minimal OAuth 2.1 authorization server for browser MCP clients.
+Minimal OAuth 2.1 authorization server for browser and native MCP clients.
 
 Password or Google Sign-In consent + PKCE (S256, token_endpoint_auth_method=none).
-No /.well-known discovery routes — Cursor static Bearer headers stay safe.
 
-Clients paste Client ID + /authorize + /token URLs manually.
+Discovery (/.well-known) and DCR (/register) are mounted on the app so LAN
+clients such as OpenClaw can complete MCP OAuth. Public Cursor on
+mem.agentmemory.md still 404s /.well-known via Caddy and keeps static Bearer.
 """
 
 from __future__ import annotations
@@ -13,10 +14,10 @@ import base64
 import hashlib
 import hmac
 import html
+import ipaddress
 import secrets
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse
 
@@ -25,6 +26,12 @@ from mcp.server.auth.provider import AccessToken
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
+from agentmemory.mcp.oauth_store import (
+    IssuedTokenStore,
+    PendingAuthCode,
+    StoredAccessToken,
+    StoredRefreshToken,
+)
 from agentmemory.mcp.tokens import hash_token
 
 if TYPE_CHECKING:
@@ -34,58 +41,27 @@ DEFAULT_REDIRECT_ALLOWLIST = ("https://grok.com/connectors-oauth-exchange-code/"
 DEFAULT_SCOPE = "memory:full"
 ALLOWED_SCOPES = frozenset({DEFAULT_SCOPE})
 ACCESS_TOKEN_PREFIX = "amo_"
+REFRESH_TOKEN_PREFIX = "amr_"
 OAUTH_SESSION_COOKIE = "am_oauth_sid"
 CODE_TTL_SECONDS = 600
-ACCESS_TOKEN_TTL_SECONDS = 7 * 24 * 3600  # 7 days
+ACCESS_TOKEN_TTL_SECONDS = 3600  # 1 hour; clients refresh with amr_
+REFRESH_TOKEN_TTL_SECONDS = 90 * 24 * 3600  # 90 days
 PASSWORD_RATE_LIMIT_MAX = 5
 PASSWORD_RATE_LIMIT_WINDOW_SECONDS = 900  # 15 minutes
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
-
-@dataclass
-class PendingAuthCode:
-    code: str
-    client_id: str
-    redirect_uri: str
-    code_challenge: str
-    code_challenge_method: str
-    scopes: list[str]
-    state: str | None
-    expires_at: float
-    subject: str | None = None
-
-
-@dataclass
-class StoredAccessToken:
-    token_hash: str
-    client_id: str
-    scopes: list[str]
-    expires_at: float
-    subject: str | None = None
-
-
-@dataclass
-class IssuedTokenStore:
-    """In-memory auth codes and access tokens (single-replica deploy)."""
-
-    codes: dict[str, PendingAuthCode] = field(default_factory=dict)
-    access_tokens: dict[str, StoredAccessToken] = field(default_factory=dict)
-    oauth_sessions: dict[str, object] = field(default_factory=dict)
-
-    def purge_expired(self) -> None:
-        now = time.time()
-        self.codes = {
-            k: v for k, v in self.codes.items() if v.expires_at > now
-        }
-        self.access_tokens = {
-            k: v for k, v in self.access_tokens.items() if v.expires_at > now
-        }
-        from agentmemory.mcp.oauth_google import PendingOAuthSession
-
-        self.oauth_sessions = {
-            k: v
-            for k, v in self.oauth_sessions.items()
-            if isinstance(v, PendingOAuthSession) and v.expires_at > now
-        }
+# Re-export for existing test imports.
+__all__ = [
+    "ACCESS_TOKEN_PREFIX",
+    "ACCESS_TOKEN_TTL_SECONDS",
+    "REFRESH_TOKEN_PREFIX",
+    "REFRESH_TOKEN_TTL_SECONDS",
+    "OAuthAuthorizationServer",
+    "PendingAuthCode",
+    "StoredAccessToken",
+    "StoredRefreshToken",
+    "IssuedTokenStore",
+]
 
 
 class PasswordRateLimiter:
@@ -144,10 +120,9 @@ class OAuthIssuedTokenVerifier(TokenVerifier):
         raw = token.strip()
         if not raw.startswith(ACCESS_TOKEN_PREFIX):
             return None
-        self._store.purge_expired()
         digest = hash_token(raw, self._pepper)
-        stored = self._store.access_tokens.get(digest)
-        if stored is None or stored.expires_at <= time.time():
+        stored = self._store.get_access(digest)
+        if stored is None:
             return None
         return AccessToken(
             token=raw,
@@ -165,12 +140,38 @@ def _verify_pkce(code_verifier: str, code_challenge: str, method: str) -> bool:
     return hmac.compare_digest(computed, code_challenge)
 
 
-def _redirect_allowed(redirect_uri: str, allowlist: tuple[str, ...]) -> bool:
-    """Exact allowlist match — reject query strings and fragments."""
+def _is_loopback_redirect(redirect_uri: str) -> bool:
+    """RFC 8252 native-app loopback: http://127.0.0.1|localhost|::1:<port>/<path>."""
     parsed = urlparse(redirect_uri)
-    if parsed.scheme != "https":
+    if parsed.scheme != "http":
         return False
     if parsed.query or parsed.fragment:
+        return False
+    if parsed.username or parsed.password:
+        return False
+    if not parsed.path or parsed.path == "/":
+        return False
+    host = (parsed.hostname or "").lower()
+    if host not in LOOPBACK_HOSTS:
+        return False
+    if parsed.port is None or not (1 <= parsed.port <= 65535):
+        return False
+    if host not in {"localhost"}:
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            return False
+    return True
+
+
+def _redirect_allowed(redirect_uri: str, allowlist: tuple[str, ...]) -> bool:
+    """HTTPS exact allowlist, or RFC 8252 http loopback. No query/fragment."""
+    parsed = urlparse(redirect_uri)
+    if parsed.query or parsed.fragment:
+        return False
+    if _is_loopback_redirect(redirect_uri):
+        return True
+    if parsed.scheme != "https":
         return False
     return redirect_uri in allowlist
 
@@ -226,12 +227,13 @@ def _oauth_error(
 
 def _consent_html(
     *,
-    client_id: str,
-    scope: str,
     allowed_email: str,
     error: str | None,
     fields: dict[str, str],
+    client_id: str = "",
+    scope: str = "",
 ) -> str:
+    del client_id, scope
     hidden = "".join(
         f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">\n'
         for k, v in fields.items()
@@ -250,13 +252,12 @@ def _consent_html(
     label {{ display: block; margin: 1rem 0 0.25rem; font-weight: 600; }}
     input[type=password], input[type=email] {{ width: 100%; padding: 0.5rem; box-sizing: border-box; }}
     button {{ margin-top: 1.25rem; padding: 0.6rem 1.2rem; cursor: pointer; }}
-    .meta {{ color: #555; font-size: 0.9rem; margin-top: 0.5rem; }}
+    .meta {{ color: #555; font-size: 0.9rem; margin: 0.75rem 0 0; line-height: 1.45; }}
   </style>
 </head>
 <body>
   <h1>Authorize access</h1>
-  <p class="meta">Client: <code>{html.escape(client_id)}</code><br>
-  Scope: <code>{html.escape(scope or DEFAULT_SCOPE)}</code></p>
+  <p class="meta">This app wants to connect to your agentmemory so it can store and recall memories on your behalf.</p>
   {err_block}
   <form method="post" action="/authorize">
     {hidden}
@@ -286,6 +287,9 @@ class OAuthAuthorizationServer:
         redirect_allowlist: tuple[str, ...] = DEFAULT_REDIRECT_ALLOWLIST,
         code_ttl_seconds: int = CODE_TTL_SECONDS,
         access_token_ttl_seconds: int = ACCESS_TOKEN_TTL_SECONDS,
+        refresh_token_ttl_seconds: int = REFRESH_TOKEN_TTL_SECONDS,
+        redis_url: str | None = None,
+        redis_key_prefix: str = "oauth:",
     ) -> None:
         if not allowed_email.strip():
             raise ValueError("OAuth allowed email is required")
@@ -302,12 +306,14 @@ class OAuthAuthorizationServer:
         self._google_client_id = google_client_id.strip()
         self._google_client_secret = google_client_secret.strip()
         base = public_base_url.rstrip("/")
+        self._public_base_url = base
         self._google_callback_url = f"{base}/oauth/google/callback"
         self._client_id = client_id
         self._redirect_allowlist = redirect_allowlist
         self._code_ttl = code_ttl_seconds
         self._access_token_ttl = access_token_ttl_seconds
-        self.store = IssuedTokenStore()
+        self._refresh_token_ttl = refresh_token_ttl_seconds
+        self.store = IssuedTokenStore(redis_url=redis_url, key_prefix=redis_key_prefix)
         self.verifier = OAuthIssuedTokenVerifier(self.store, pepper=password_pepper)
         self._password_rate_limiter = PasswordRateLimiter()
 
@@ -374,18 +380,100 @@ class OAuthAuthorizationServer:
         location = f"{redirect_uri}{sep}{urlencode(query)}"
         return RedirectResponse(location, status_code=302)
 
-    def _issue_access_token(self, pending: PendingAuthCode) -> tuple[str, int]:
+    def _request_origin(self, request: Request) -> str:
+        """Origin the client actually called (LAN vs public)."""
+        host = (request.headers.get("host") or "").strip()
+        proto = (request.headers.get("x-forwarded-proto") or "").strip()
+        if not proto:
+            proto = request.url.scheme or "http"
+        if host:
+            return f"{proto}://{host}".rstrip("/")
+        return self._public_base_url
+
+    def _as_metadata(self, request: Request | None = None) -> dict[str, object]:
+        public = self._public_base_url
+        origin = self._request_origin(request) if request is not None else public
+        return {
+            "issuer": origin,
+            "authorization_endpoint": f"{public}/authorize",
+            "token_endpoint": f"{public}/token",
+            "registration_endpoint": f"{public}/register",
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "response_types_supported": ["code"],
+            "code_challenge_methods_supported": ["S256"],
+            "token_endpoint_auth_methods_supported": ["none"],
+            "scopes_supported": [DEFAULT_SCOPE],
+        }
+
+    def _resource_metadata(self, request: Request) -> dict[str, object]:
+        origin = self._request_origin(request)
+        return {
+            "resource": f"{origin}/mcp",
+            "authorization_servers": [origin],
+            "bearer_methods_supported": ["header"],
+            "scopes_supported": [DEFAULT_SCOPE],
+        }
+
+    def _token_response(
+        self,
+        access_token: str,
+        refresh_token: str,
+        expires_in: int,
+        scopes: list[str],
+    ) -> JSONResponse:
+        return JSONResponse(
+            {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "Bearer",
+                "expires_in": expires_in,
+                "scope": " ".join(scopes),
+            }
+        )
+
+    def _issue_tokens(
+        self,
+        *,
+        client_id: str,
+        scopes: list[str],
+        subject: str | None,
+    ) -> tuple[str, str, int]:
         access_token = ACCESS_TOKEN_PREFIX + secrets.token_urlsafe(48)
-        expires_at = time.time() + self._access_token_ttl
-        digest = hash_token(access_token, self._password_pepper)
-        self.store.access_tokens[digest] = StoredAccessToken(
-            token_hash=digest,
+        refresh_token = REFRESH_TOKEN_PREFIX + secrets.token_urlsafe(48)
+        now = time.time()
+        access_digest = hash_token(access_token, self._password_pepper)
+        refresh_digest = hash_token(refresh_token, self._password_pepper)
+        self.store.put_access(
+            StoredAccessToken(
+                token_hash=access_digest,
+                client_id=client_id,
+                scopes=scopes,
+                expires_at=now + self._access_token_ttl,
+                subject=subject,
+            ),
+            self._access_token_ttl,
+        )
+        self.store.put_refresh(
+            StoredRefreshToken(
+                token_hash=refresh_digest,
+                client_id=client_id,
+                scopes=scopes,
+                expires_at=now + self._refresh_token_ttl,
+                subject=subject,
+                access_token_hash=access_digest,
+            ),
+            self._refresh_token_ttl,
+        )
+        return access_token, refresh_token, self._access_token_ttl
+
+    def _issue_access_token(self, pending: PendingAuthCode) -> tuple[str, int]:
+        """Backward-compatible wrapper used by older call sites."""
+        access, _refresh, expires_in = self._issue_tokens(
             client_id=pending.client_id,
             scopes=pending.scopes,
-            expires_at=expires_at,
             subject=pending.subject,
         )
-        return access_token, self._access_token_ttl
+        return access, expires_in
 
     def register_routes(self, mcp: fastmcp.FastMCP) -> None:
         from agentmemory.mcp.oauth_google import (
@@ -418,9 +506,6 @@ class OAuthAuthorizationServer:
                     pending = create_oauth_session(server, validated)
                     response = HTMLResponse(
                         _google_consent_html(
-                            client_id=validated["client_id"],
-                            scope=fields["scope"],
-                            allowed_email=server._allowed_email,
                             login_url=f"/oauth/google/login?session={pending.session_id}",
                             error=None,
                         )
@@ -567,16 +652,39 @@ class OAuthAuthorizationServer:
                     data = {}
 
             grant_type = data.get("grant_type", "")
+            client_id = data.get("client_id", "")
+            if client_id and client_id != server._client_id:
+                return _oauth_error("invalid_client", "Unknown client_id", 401)
+
+            if grant_type == "refresh_token":
+                raw_refresh = data.get("refresh_token", "")
+                if not raw_refresh.startswith(REFRESH_TOKEN_PREFIX):
+                    return _oauth_error("invalid_grant", "Invalid refresh token", 400)
+                digest = hash_token(raw_refresh, server._password_pepper)
+                stored = server.store.get_refresh(digest)
+                if stored is None:
+                    return _oauth_error("invalid_grant", "Invalid or expired refresh token", 400)
+                server.store.delete_refresh(digest)
+                if stored.access_token_hash:
+                    server.store.delete_access(stored.access_token_hash)
+                access_token, refresh_token, expires_in = server._issue_tokens(
+                    client_id=stored.client_id,
+                    scopes=stored.scopes,
+                    subject=stored.subject,
+                )
+                return server._token_response(
+                    access_token, refresh_token, expires_in, stored.scopes
+                )
+
             if grant_type != "authorization_code":
-                return _oauth_error("unsupported_grant_type", "Only authorization_code is supported")
+                return _oauth_error(
+                    "unsupported_grant_type",
+                    "Only authorization_code and refresh_token are supported",
+                )
 
             code = data.get("code", "")
             redirect_uri = data.get("redirect_uri", "")
             code_verifier = data.get("code_verifier", "")
-            client_id = data.get("client_id", "")
-
-            if client_id and client_id != server._client_id:
-                return _oauth_error("invalid_client", "Unknown client_id", 401)
 
             server.store.purge_expired()
             pending = server.store.codes.pop(code, None)
@@ -593,13 +701,53 @@ class OAuthAuthorizationServer:
             ):
                 return _oauth_error("invalid_grant", "PKCE verification failed", 400)
 
-            access_token, expires_in = server._issue_access_token(pending)
+            access_token, refresh_token, expires_in = server._issue_tokens(
+                client_id=pending.client_id,
+                scopes=pending.scopes,
+                subject=pending.subject,
+            )
+            return server._token_response(
+                access_token, refresh_token, expires_in, pending.scopes
+            )
 
+        @mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
+        async def oauth_as_metadata(request: Request) -> Response:
+            return JSONResponse(server._as_metadata(request))
+
+        @mcp.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
+        async def oauth_resource_metadata(request: Request) -> Response:
+            return JSONResponse(server._resource_metadata(request))
+
+        @mcp.custom_route("/.well-known/oauth-protected-resource/mcp", methods=["GET"])
+        async def oauth_resource_metadata_mcp(request: Request) -> Response:
+            return JSONResponse(server._resource_metadata(request))
+
+        @mcp.custom_route("/register", methods=["POST"])
+        async def register_client(request: Request) -> Response:
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            if not isinstance(body, dict):
+                return _oauth_error("invalid_client_metadata", "JSON object required")
+            raw_uris = body.get("redirect_uris", [])
+            if isinstance(raw_uris, str):
+                raw_uris = [raw_uris]
+            if not isinstance(raw_uris, list) or not raw_uris:
+                return _oauth_error("invalid_redirect_uri", "redirect_uris required")
+            uris = [str(u) for u in raw_uris]
+            for uri in uris:
+                if not _redirect_allowed(uri, server._redirect_allowlist):
+                    return _oauth_error("invalid_redirect_uri", "redirect_uri not allowed")
             return JSONResponse(
                 {
-                    "access_token": access_token,
-                    "token_type": "Bearer",
-                    "expires_in": expires_in,
-                    "scope": " ".join(pending.scopes),
-                }
+                    "client_id": server._client_id,
+                    "client_id_issued_at": int(time.time()),
+                    "token_endpoint_auth_method": "none",
+                    "grant_types": ["authorization_code", "refresh_token"],
+                    "response_types": ["code"],
+                    "redirect_uris": uris,
+                    "scope": DEFAULT_SCOPE,
+                },
+                status_code=201,
             )

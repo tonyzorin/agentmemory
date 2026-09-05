@@ -277,6 +277,8 @@ def memory_split(
     original's node_type, importance, tags, and graph edges.
 
     chunks: list of focused content strings, one fact per string (~1-2 sentences each).
+    At least one nonempty chunk is required. A single chunk rewrites/retypes the
+    original node (the original is deleted).
     """
     return get_tools().memory_split(
         memory_id=memory_id,
@@ -660,6 +662,7 @@ def main() -> None:
                     public_base_url=settings.agentmemory_public_base_url,
                     client_id=settings.agentmemory_oauth_client_id,
                     redirect_allowlist=settings.oauth_redirect_allowlist,
+                    redis_url=settings.redis_url,
                 )
                 oauth_server.register_routes(mcp)
                 login_mode = "Google" if settings.oauth_google_enabled else "password"

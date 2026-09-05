@@ -84,9 +84,10 @@ def build_http_auth(
     """
     Build HTTP auth: hashed Bearer API keys and/or OAuth-issued tokens.
 
-    Uses MultiAuth with server=None so no OAuth discovery routes are mounted
-    (Cursor static Bearer headers stay safe). OAuth /authorize and /token are
-    registered separately via custom_route.
+    Uses MultiAuth with server=None so FastMCP does not auto-mount OAuth
+    discovery. OpenClaw discovery is registered as custom_route on the app
+    (LAN). Caddy 404s /.well-known on mem.agentmemory.md so Cursor keeps
+    static Bearer headers. /authorize, /token, and /register are custom_route.
     """
     verifiers: list[TokenVerifier] = []
 

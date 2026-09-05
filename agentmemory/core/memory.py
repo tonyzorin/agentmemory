@@ -626,6 +626,12 @@ class MemoryService:
                 f"Allowed: {sorted(AGEClient.ALLOWED_EDGE_TYPES)}"
             )
 
+        existing = self.postgres.get_relations(
+            from_id=from_id, to_id=to_id, edge_type=edge_type
+        )
+        if existing:
+            return True
+
         # Create in graph
         graph_ok = self.graph.create_edge(from_id, to_id, edge_type, properties)
 
@@ -805,13 +811,15 @@ class MemoryService:
         inherited_tags = tags if tags is not None else entity.get("tags", [])
         inherited_source = meta.get("source", "mcp")
 
+        nonempty = [c.strip() for c in (chunks or []) if c and str(c).strip()]
+        if not nonempty:
+            raise ValueError("chunks must contain at least 1 nonempty item")
+
         # Collect existing outgoing relations to re-attach to new nodes
         existing_relations = self.postgres.get_relations(from_id=memory_id)
 
         new_ids: list[str] = []
-        for chunk in chunks:
-            if not chunk.strip():
-                continue
+        for chunk in nonempty:
             result = self.store(
                 content=chunk.strip(),
                 node_type=inherited_type,
