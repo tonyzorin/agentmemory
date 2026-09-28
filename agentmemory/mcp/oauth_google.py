@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import html
-import json
-import logging
 import secrets
 import time
 from dataclasses import dataclass
@@ -23,44 +21,14 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 GOOGLE_SCOPES = "openid email profile"
 SESSION_TTL_SECONDS = 600
-logger = logging.getLogger(__name__)
 
 
-# region agent log
-def _debug_log(hypothesis_id: str, message: str, data: dict) -> None:
-    payload = {
-        "sessionId": "44fde4",
-        "runId": "pre-fix",
-        "hypothesisId": hypothesis_id,
-        "location": "oauth_google.py:callback",
-        "message": message,
-        "data": data,
-        "timestamp": int(time.time() * 1000),
-    }
-    line = json.dumps(payload, default=str)
-    for path in ("/tmp/debug-44fde4.log", "/home/anton/.cursor/debug-44fde4.log"):
-        try:
-            with open(path, "a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-        except OSError:
-            pass
-    logger.info("debug-44fde4 %s", line)
-    try:
-        import urllib.request
-
-        req = urllib.request.Request(
-            "http://192.168.122.1:7898/ingest/5b19ce69-f70d-429b-9797-11882961da7b",
-            data=line.encode(),
-            headers={
-                "Content-Type": "application/json",
-                "X-Debug-Session-Id": "44fde4",
-            },
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=1).read()
-    except Exception:
-        pass
-# endregion
+def _google_email_is_verified(userinfo: dict) -> bool:
+    """v2 userinfo uses verified_email; OIDC userinfo uses email_verified."""
+    value = userinfo.get("email_verified")
+    if value is None:
+        value = userinfo.get("verified_email")
+    return value is True or value == "true"
 
 
 @dataclass
@@ -199,31 +167,9 @@ def register_google_routes(server: OAuthAuthorizationServer, mcp) -> None:
                 return HTMLResponse("Failed to fetch Google profile.", status_code=400)
             userinfo = user_resp.json()
             email = (userinfo.get("email") or "").strip().lower()
-            email_verified = userinfo.get("email_verified")
-            verified_email = userinfo.get("verified_email")
-            # region agent log
-            _debug_log(
-                "A-E",
-                "google userinfo verification fields",
-                {
-                    "userinfo_http": user_resp.status_code,
-                    "userinfo_keys": sorted(userinfo.keys()),
-                    "email_verified": email_verified,
-                    "email_verified_type": type(email_verified).__name__,
-                    "verified_email": verified_email,
-                    "verified_email_type": type(verified_email).__name__,
-                    "has_email": bool(email),
-                    "email_domain": email.rsplit("@", 1)[-1] if "@" in email else "",
-                    "token_http": token_resp.status_code,
-                    "token_keys": sorted((token_resp.json() or {}).keys()),
-                    "truthy_email_verified": bool(email_verified),
-                    "truthy_verified_email": bool(verified_email),
-                    "will_reject_unverified": not bool(email_verified),
-                },
-            )
-            # endregion
+            resolved_verified = _google_email_is_verified(userinfo)
 
-        if not email_verified:
+        if not resolved_verified:
             return HTMLResponse(
                 _google_consent_html(
                     login_url=f"/oauth/google/login?session={session_id}",

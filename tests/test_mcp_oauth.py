@@ -569,6 +569,102 @@ class TestGoogleOAuthSecurity:
             assert resp.status_code == 302
             assert resp.headers["location"].startswith(OAUTH_REDIRECT.rstrip("/"))
 
+    @pytest.mark.asyncio
+    async def test_verified_email_v2_field_issues_code(self, google_oauth_mcp: FastMCP):
+        _, challenge = _make_pkce_pair()
+        with TestClient(google_oauth_mcp.http_app()) as client:
+            auth_get = client.get("/authorize", params=_authorize_params(challenge))
+            session_id = auth_get.cookies[OAUTH_SESSION_COOKIE]
+            cookies = {OAUTH_SESSION_COOKIE: session_id}
+
+            mock_token_resp = MagicMock()
+            mock_token_resp.status_code = 200
+            mock_token_resp.json.return_value = {"access_token": "google-access"}
+
+            mock_user_resp = MagicMock()
+            mock_user_resp.status_code = 200
+            mock_user_resp.json.return_value = {
+                "email": ALLOWED_EMAIL,
+                "verified_email": True,
+            }
+
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_token_resp)
+            mock_client.get = AsyncMock(return_value=mock_user_resp)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("agentmemory.mcp.oauth_google.httpx.AsyncClient", return_value=mock_client):
+                resp = client.get(
+                    f"/oauth/google/callback?state={session_id}&code=google-code",
+                    cookies=cookies,
+                    follow_redirects=False,
+                )
+
+            assert resp.status_code == 302
+            assert resp.headers["location"].startswith(OAUTH_REDIRECT.rstrip("/"))
+
+    @pytest.mark.asyncio
+    async def test_different_verified_account_rejected_no_code_no_token(
+        self, google_oauth_server: OAuthAuthorizationServer, google_oauth_mcp: FastMCP
+    ):
+        """Security gate: a different, fully-verified Google account must never get a
+        code or an amo_ token. Memory is a single shared graph with no per-user
+        isolation, so this is the only thing standing between any Google user and
+        Anton's private memories — it must fail closed."""
+        other_email = "someone.else@gmail.com"
+        _, challenge = _make_pkce_pair()
+        with TestClient(google_oauth_mcp.http_app()) as client:
+            auth_get = client.get("/authorize", params=_authorize_params(challenge))
+            session_id = auth_get.cookies[OAUTH_SESSION_COOKIE]
+            cookies = {OAUTH_SESSION_COOKIE: session_id}
+
+            mock_token_resp = MagicMock()
+            mock_token_resp.status_code = 200
+            mock_token_resp.json.return_value = {"access_token": "google-access"}
+
+            mock_user_resp = MagicMock()
+            mock_user_resp.status_code = 200
+            mock_user_resp.json.return_value = {
+                "email": other_email,
+                "email_verified": True,
+                "verified_email": True,
+            }
+
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_token_resp)
+            mock_client.get = AsyncMock(return_value=mock_user_resp)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("agentmemory.mcp.oauth_google.httpx.AsyncClient", return_value=mock_client):
+                resp = client.get(
+                    f"/oauth/google/callback?state={session_id}&code=google-code",
+                    cookies=cookies,
+                    follow_redirects=False,
+                )
+
+            assert resp.status_code == 403
+            assert "access denied" in resp.text.lower()
+            assert other_email not in resp.text
+
+            # No auth code was ever stored for this identity.
+            assert not google_oauth_server.store.codes
+
+            # No token issuance possible: a forged/guessed code must be rejected too.
+            token_resp = client.post(
+                "/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": CLIENT_ID,
+                    "code": "not-a-real-code",
+                    "redirect_uri": OAUTH_REDIRECT,
+                    "code_verifier": "irrelevant",
+                },
+            )
+            assert token_resp.status_code == 400
+            assert "access_token" not in token_resp.json()
+
 
 class TestMultiAuthWithOAuth:
     def test_bearer_and_oauth_both_work(self, oauth_password_hash: str):
