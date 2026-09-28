@@ -75,8 +75,10 @@ class Settings(BaseSettings):
     agentmemory_token_hashes: str = ""
     agentmemory_token_pepper: str = ""
 
-    # OAuth for browser/native MCP clients. App serves /.well-known for LAN
-    # (OpenClaw). Public mem.agentmemory.md still 404s well-known via Caddy.
+    # OAuth for browser/native MCP clients (Cursor, Claude Desktop, OpenClaw).
+    # App serves /.well-known discovery + DCR; Caddy proxies it publicly on
+    # mem.agentmemory.md. AGENTMEMORY_OAUTH_ALLOWED_EMAIL must stay a single
+    # address — memory has no per-user isolation.
     agentmemory_oauth_enabled: bool = False
     agentmemory_oauth_password_hash: str = ""
     agentmemory_oauth_client_id: str = "agentmemory"

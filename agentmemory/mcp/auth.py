@@ -85,9 +85,11 @@ def build_http_auth(
     Build HTTP auth: hashed Bearer API keys and/or OAuth-issued tokens.
 
     Uses MultiAuth with server=None so FastMCP does not auto-mount OAuth
-    discovery. OpenClaw discovery is registered as custom_route on the app
-    (LAN). Caddy 404s /.well-known on mem.agentmemory.md so Cursor keeps
-    static Bearer headers. /authorize, /token, and /register are custom_route.
+    discovery itself — discovery, /authorize, /token, and /register are all
+    registered manually as custom_route and proxied publicly on
+    mem.agentmemory.md (Cursor, Claude Desktop, OpenClaw). Because
+    server=None, 401 responses never carry resource_metadata, so static
+    Bearer clients are unaffected either way.
     """
     verifiers: list[TokenVerifier] = []
 

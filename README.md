@@ -241,9 +241,11 @@ claude mcp add --transport http agentmemory https://mem.yourdomain.com/mcp \
 
 **OpenClaw / stdio:** unchanged — local process, no Bearer auth.
 
-### OAuth (browser MCP clients)
+### OAuth (Cursor, Claude Desktop, and other browser/native MCP clients)
 
-Some browser-based MCP clients cannot paste a static Bearer token — they need OAuth with PKCE. The app exposes `/authorize`, `/token`, `/register`, and `/.well-known` discovery. **Public Cursor on `mem.agentmemory.md` still 404s `/.well-known` via Caddy**, so Cursor keeps using static Bearer headers.
+Some MCP clients — Claude Desktop in particular — can't paste a static Bearer token; they discover OAuth automatically via `/.well-known` and register a client via DCR (`/register`). The app exposes `/authorize`, `/token`, `/register`, and `/.well-known` discovery, and Caddy proxies all of them publicly on `mem.agentmemory.md`. This is safe to expose: `MultiAuth(server=None)` never puts `resource_metadata` on a `401`, so it doesn't change behavior for existing static-Bearer clients — they keep sending `Authorization: Bearer am_…` and never touch discovery. OAuth is additive, not a replacement.
+
+**Access is gated to a single Google account.** Memory is one shared graph with no per-user isolation, so `AGENTMEMORY_OAUTH_ALLOWED_EMAIL` must stay a single address — anyone else who signs in gets a `403` with no code or token issued, by design. Do not widen this to a list or a domain.
 
 **1. Enable on the server**
 
@@ -268,9 +270,13 @@ Or password consent (fallback):
 mem oauth password-hash   # prints AGENTMEMORY_OAUTH_PASSWORD_HASH
 ```
 
-Proxy `/authorize`, `/token`, `/register`, and `/oauth/google/*` in Caddy. Keep `/.well-known` as 404 on the Cursor hostname. Restart the app.
+Proxy `/authorize`, `/token`, `/register`, `/oauth/google/*`, and `/.well-known/oauth-authorization-server*` + `/.well-known/oauth-protected-resource*` in Caddy. Restart the app.
 
-**2. Custom connector** (paste these in the client's OAuth form)
+**2a. Claude Desktop / Cursor — auto-discovery (recommended)**
+
+Add `https://mem.agentmemory.md/mcp` as a remote MCP server with no headers configured. The client fetches `/.well-known/oauth-protected-resource`, discovers the authorization server, registers itself via `/register` (DCR), and opens a browser window for **Sign in with Google**. Complete it as `tonyzorin@gmail.com`. No endpoints to paste.
+
+**2b. Custom connector** (clients that require pasting endpoints, e.g. Grok)
 
 | Field | Value |
 |---|---|

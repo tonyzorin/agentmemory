@@ -3,9 +3,13 @@ Minimal OAuth 2.1 authorization server for browser and native MCP clients.
 
 Password or Google Sign-In consent + PKCE (S256, token_endpoint_auth_method=none).
 
-Discovery (/.well-known) and DCR (/register) are mounted on the app so LAN
-clients such as OpenClaw can complete MCP OAuth. Public Cursor on
-mem.agentmemory.md still 404s /.well-known via Caddy and keeps static Bearer.
+Discovery (/.well-known) and DCR (/register) are mounted on the app and
+proxied publicly on mem.agentmemory.md so Cursor, Claude Desktop, and LAN
+clients such as OpenClaw can all complete MCP OAuth. MultiAuth(server=None)
+never puts resource_metadata on 401, so existing static Bearer clients are
+unaffected. Access is gated to a single Google account (see _check_email) —
+memory is a single shared graph with no per-user isolation, so widening that
+allowlist would leak all of it to anyone else who signs in.
 """
 
 from __future__ import annotations
