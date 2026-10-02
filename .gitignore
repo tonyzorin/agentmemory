@@ -40,3 +40,7 @@ htmlcov/
 
 # Backup (created during rename)
 *-backup/
+
+# Local production overrides (deployment-specific, may contain secrets)
+docker-compose.override.yml
+*.bak-*
